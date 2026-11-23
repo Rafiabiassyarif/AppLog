@@ -23,7 +23,7 @@ function normalize(raw) {
     user.name = String(user.name || user.username || '');
   }
   for (const app of db.apps) {
-    for (const field of ['name', 'owner', 'type', 'status', 'tech', 'link', 'description', 'year']) {
+    for (const field of ['name', 'owner', 'type', 'status', 'tech', 'link', 'description', 'year', 'logo', 'startDate', 'endDate']) {
       app[field] = app[field] == null ? '' : String(app[field]);
     }
     app.createdBy = app.createdBy || null;

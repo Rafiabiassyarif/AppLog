@@ -3,9 +3,16 @@
 const ExcelJS = require('exceljs');
 const PDFDocument = require('pdfkit');
 
-const COLUMNS = ['No.', 'Nama aplikasi', 'Jenis', 'Status', 'Pembuat', 'Tahun', 'Teknologi', 'Link', 'Deskripsi'];
+const COLUMNS = ['No.', 'Nama aplikasi', 'Jenis', 'Status', 'Pembuat', 'Mulai', 'Selesai', 'Teknologi', 'Link', 'Deskripsi'];
 const typeLabel = app => (app.type === 'internal' ? 'Internal Kroombox' : 'Personal');
-const rowValues = (app, index) => [index + 1, app.name, typeLabel(app), app.status, app.owner, app.year, app.tech, app.link, app.description];
+const formatDate = value => (value ? new Date(value + 'T00:00:00Z').toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }) : '');
+const startText = app => formatDate(app.startDate) || app.year || '';
+const period = app => {
+  const start = startText(app);
+  if (!start) return '-';
+  return app.endDate ? `${start} – ${formatDate(app.endDate)}` : `Mulai ${start}`;
+};
+const rowValues = (app, index) => [index + 1, app.name, typeLabel(app), app.status, app.owner, startText(app), formatDate(app.endDate), app.tech, app.link, app.description];
 const today = () => new Date().toLocaleDateString('id-ID');
 
 async function writeXlsx(res, rows) {
@@ -15,16 +22,16 @@ async function writeXlsx(res, rows) {
     views: [{ state: 'frozen', ySplit: 4 }],
     pageSetup: { orientation: 'landscape', paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0 },
   });
-  sheet.columns = [6, 30, 22, 19, 24, 10, 32, 42, 60].map(width => ({ width }));
+  sheet.columns = [6, 30, 22, 19, 24, 14, 14, 32, 42, 60].map(width => ({ width }));
 
-  sheet.mergeCells('A1:I1');
+  sheet.mergeCells('A1:J1');
   const title = sheet.getCell('A1');
   title.value = 'APPLOG • DAFTAR APLIKASI';
   title.font = { size: 20, bold: true, color: { argb: 'FFFFFFFF' } };
   title.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF143D32' } };
   sheet.getRow(1).height = 42;
 
-  sheet.mergeCells('A2:I2');
+  sheet.mergeCells('A2:J2');
   sheet.getCell('A2').value = `Diekspor ${today()} · ${rows.length} aplikasi`;
   sheet.getRow(2).height = 26;
 
@@ -47,7 +54,7 @@ async function writeXlsx(res, rows) {
     });
   });
 
-  sheet.autoFilter = 'A4:I4';
+  sheet.autoFilter = 'A4:J4';
   sheet.pageSetup.printTitlesRow = '1:4';
   res.writeHead(200, {
     'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -77,7 +84,7 @@ function writePdf(res, rows) {
   rows.forEach((app, index) => {
     const parts = [
       { text: `${index + 1}. ${app.name}`, size: 13, color: '#143d32', gap: 7 },
-      { text: `${app.type === 'internal' ? 'Internal' : 'Personal'}  |  ${app.status}  |  ${app.owner}  |  ${app.year || '-'}`, size: 9, color: '#6a7866', gap: 5 },
+      { text: `${app.type === 'internal' ? 'Internal' : 'Personal'}  |  ${app.status}  |  ${app.owner}  |  ${period(app)}`, size: 9, color: '#6a7866', gap: 5 },
       { text: `Teknologi: ${app.tech || '-'}`, size: 9, color: '#6a7866', gap: 5 },
       { text: `Link: ${app.link || '-'}`, size: 9, color: '#6a7866', gap: 7 },
       { text: app.description || '-', size: 10, color: '#3d4c36', gap: 0 },

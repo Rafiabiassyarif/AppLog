@@ -1,11 +1,11 @@
 import React, { useMemo, useState } from 'react';
 import {
   Plus, Search, Download, ChevronDown, FileSpreadsheet, FileText, List, Grid2X2, Loader2, FolderKanban,
-  Layers, Clock3, CheckCircle2, Users, UserRound, Eye, ArrowUpRight, Pencil, Trash2,
+  Layers, Clock3, CheckCircle2, Users, UserRound, Eye, ArrowUpRight, Pencil, Trash2, CalendarDays,
 } from 'lucide-react';
 import { api } from '../lib/api.js';
 import { queryApps, SORT_OPTIONS } from '../lib/appQuery.js';
-import { STATUSES, TYPE_LABEL, initials, techList, blankApp } from '../lib/format.js';
+import { STATUSES, TYPE_LABEL, initials, techList, blankApp, formatDate, formatPeriod } from '../lib/format.js';
 import { Avatar, Badge, Button, ConfirmModal, PageHeading, Pagination } from '../components.jsx';
 import AppModal from './AppModal.jsx';
 
@@ -21,7 +21,9 @@ function Stat({ label, value, icon: Icon, tone }) {
   );
 }
 
-const AppIcon = ({ name, index }) => <span className={'app-icon color-' + (index % 5)}>{initials(name)}</span>;
+const AppIcon = ({ app, index }) => (app.logo
+  ? <img className="app-icon app-logo" src={app.logo} alt="" />
+  : <span className={'app-icon color-' + (index % 5)}>{initials(app.name)}</span>);
 
 function Actions({ app, editable, onDetail, onEdit, onDelete }) {
   return (
@@ -180,14 +182,15 @@ export default function AppsView({ view, info, user, apps, users, loading, filte
         ) : filters.layout === 'table' ? (
           <div className="table-scroll">
             <table className="apps-table">
-              <thead><tr><th>NAMA APLIKASI</th><th>JENIS</th><th>STATUS</th><th>PEMBUAT</th><th>TEKNOLOGI</th><th>AKSI</th></tr></thead>
+              <thead><tr><th>NAMA APLIKASI</th><th>JENIS</th><th>STATUS</th><th>PEMBUAT</th><th>MULAI</th><th>TEKNOLOGI</th><th>AKSI</th></tr></thead>
               <tbody>
                 {visible.map((app, i) => (
                   <tr key={app.id}>
-                    <td><div className="app-name"><AppIcon name={app.name} index={i} /><div><b>{app.name}</b><small>{app.description || 'Belum ada deskripsi'}</small></div></div></td>
+                    <td><div className="app-name"><AppIcon app={app} index={i} /><div><b>{app.name}</b><small>{app.description || 'Belum ada deskripsi'}</small></div></div></td>
                     <td><span className={'type-tag ' + app.type}>{TYPE_LABEL[app.type]}</span></td>
                     <td><Badge status={app.status} /></td>
                     <td><span className="owner-cell"><Avatar name={app.owner} size="tiny" />{app.owner}</span></td>
+                    <td className="date-cell">{formatDate(app.startDate) || app.year || '—'}</td>
                     <td><div className="tech-tags">{techList(app.tech).length ? techList(app.tech).slice(0, 2).map(t => <span key={t}>{t}</span>) : <span>—</span>}</div></td>
                     <td><Actions {...actionProps(app)} /></td>
                   </tr>
@@ -199,11 +202,12 @@ export default function AppsView({ view, info, user, apps, users, loading, filte
           <div className="app-grid">
             {visible.map((app, i) => (
               <article className="app-card" key={app.id}>
-                <div className="card-top"><AppIcon name={app.name} index={i} /><Badge status={app.status} /></div>
+                <div className="card-top"><AppIcon app={app} index={i} /><Badge status={app.status} /></div>
                 <span className={'type-tag ' + app.type}>{TYPE_LABEL[app.type]}</span>
                 <h3>{app.name}</h3>
                 <p>{app.description || 'Belum ada deskripsi.'}</p>
                 <div className="tech-tags">{techList(app.tech).map(t => <span key={t}>{t}</span>)}</div>
+                {formatPeriod(app) && <span className="card-date"><CalendarDays size={13} />{formatPeriod(app)}</span>}
                 <footer>
                   <span className="owner-cell"><Avatar name={app.owner} size="tiny" />{app.owner}</span>
                   <Actions {...actionProps(app)} />

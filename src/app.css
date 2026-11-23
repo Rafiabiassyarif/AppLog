@@ -530,3 +530,27 @@ button:focus-visible,a:focus-visible{outline-color:#8fb0e6}
   .workspace .page-heading{justify-content:flex-end}
   .workspace .section-title{padding:16px}
 }
+.app-logo{object-fit:contain;background:#fff;border:1px solid var(--line);padding:2px}
+.date-cell{white-space:nowrap;color:var(--ws-muted,#6b7487);font-size:12px}
+.card-date{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--ws-muted,#6b7487)}
+.form-grid>label{align-content:start}
+.form-grid small{color:var(--ws-muted,#6b7487)}
+.form-grid small.counter{justify-self:end}
+.form-grid input[readonly]{background:#f4f6fa;color:var(--ws-muted,#6b7487)}
+.logo-row{display:grid;grid-template-columns:68px 1fr;column-gap:var(--space-4);row-gap:6px;align-items:end}
+.logo-picker{position:relative;display:grid;place-items:center;width:68px;height:68px;padding:0;border-radius:14px;background:var(--ws-soft,#edf2fb);color:var(--ws-accent,#133c7e);font-weight:600;font-size:20px;border:1px dashed #b9c6dc;overflow:hidden;cursor:pointer;transition:border-color .16s}
+.logo-picker:hover:not(:disabled){border-color:var(--ws-accent,#133c7e)}
+.logo-picker:disabled{cursor:default;border-style:solid;border-color:var(--line)}
+.logo-picker.has-logo{background:#fff;border:1px solid var(--line)}
+.logo-picker img{width:100%;height:100%;object-fit:contain;padding:6px}
+.logo-overlay{position:absolute;inset:0;display:grid;place-items:center;background:#133c7ecc;color:#fff;opacity:0;transition:opacity .16s}
+.logo-picker:hover .logo-overlay,.logo-picker:focus-visible .logo-overlay{opacity:1}
+.logo-picker:focus-visible{outline:2px solid var(--ws-accent,#133c7e);outline-offset:2px}
+.logo-hint{grid-column:2;margin:0;font-size:var(--text-small);color:var(--ws-muted,#6b7487);line-height:1.5}
+.modal-footer .btn{min-width:104px;border-radius:10px}
+.logo-actions{display:inline-flex;flex-wrap:wrap;gap:6px}
+.chip-btn{display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 10px;border:1px solid var(--line);border-radius:999px;background:#fff;font:inherit;font-size:var(--text-small,12px);font-weight:600;color:var(--ws-ink,#0f1b33);cursor:pointer;transition:background .15s,border-color .15s,color .15s}
+.chip-btn:hover{background:var(--ws-soft,#edf2fb);border-color:#b9c6dc}
+.chip-btn.danger{color:#b42318;border-color:#f4c7c3;background:#fef3f2}
+.chip-btn.danger:hover{background:#fee4e2;border-color:#eea39c}
+.chip-btn:focus-visible{outline:2px solid var(--ws-accent,#133c7e);outline-offset:2px}

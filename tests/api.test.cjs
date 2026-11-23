@@ -112,6 +112,27 @@ test('hapus memindahkan ke Sampah dan bisa dipulihkan', async () => {
   assert.equal((await member('/api/apps')).data.length, 1);
 });
 
+test('tanggal pengerjaan dan logo', async () => {
+  const body = { name: 'App Tanggal', owner: 'Budi', type: 'internal', status: 'Selesai' };
+  const post = extra => member('/api/apps', { method: 'POST', body: { ...body, ...extra } });
+  assert.equal((await post({ startDate: '2026-02-30' })).status, 400, 'tanggal tidak ada');
+  assert.equal((await post({ startDate: '12/03/2026' })).status, 400, 'format salah');
+  assert.equal((await post({ startDate: '2026-03-10', endDate: '2026-03-01' })).status, 400, 'selesai sebelum mulai');
+  assert.equal((await post({ logo: 'data:image/svg+xml;base64,PHN2Zz4=' })).status, 400, 'SVG ditolak');
+  assert.equal((await post({ logo: 'data:image/png;base64,' + 'A'.repeat(90000) })).status, 400, 'logo terlalu besar');
+  const logo = 'data:image/png;base64,iVBORw0KGgo=';
+  const ok = await post({ startDate: '2026-03-01', endDate: '2026-03-10', logo, year: '2020' });
+  assert.equal(ok.status, 201);
+  assert.equal(ok.data.startDate, '2026-03-01');
+  assert.equal(ok.data.endDate, '2026-03-10');
+  assert.equal(ok.data.logo, logo);
+  assert.equal(ok.data.year, '2026', 'tahun mengikuti tanggal mulai');
+  const cleared = await member(`/api/apps/${ok.data.id}`, { method: 'PUT', body: { ...body, startDate: '2026-03-01', logo: '' } });
+  assert.equal(cleared.data.logo, '');
+  assert.equal(cleared.data.endDate, '');
+  assert.equal((await member(`/api/apps/${ok.data.id}`, { method: 'DELETE' })).status, 200);
+});
+
 test('user biasa tidak bisa akses fitur admin', async () => {
   assert.equal((await member('/api/users')).status, 403);
   assert.equal((await member('/api/audit')).status, 403);

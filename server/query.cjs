@@ -4,7 +4,7 @@
 const SORTS = {
   updated: (a, b) => b.updatedAt.localeCompare(a.updatedAt),
   name: (a, b) => a.name.localeCompare(b.name, 'id', { sensitivity: 'base' }),
-  year: (a, b) => (b.year || '0').localeCompare(a.year || '0') || a.name.localeCompare(b.name, 'id'),
+  year: (a, b) => (b.startDate || b.year || '0').localeCompare(a.startDate || a.year || '0') || a.name.localeCompare(b.name, 'id'),
   status: (a, b) => a.status.localeCompare(b.status, 'id') || a.name.localeCompare(b.name, 'id'),
 };
 

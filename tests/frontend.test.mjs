@@ -3,17 +3,17 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { queryApps } from '../src/lib/appQuery.js';
-import { initials, techList, blankApp } from '../src/lib/format.js';
+import { initials, techList, blankApp, todayISO, formatPeriod } from '../src/lib/format.js';
 import { api, UNAUTHORIZED_EVENT } from '../src/lib/api.js';
 
 const require = createRequire(import.meta.url);
 const server = require('../server/query.cjs');
 
 const apps = [
-  { id: '1', name: 'Absensi', owner: 'Budi', type: 'internal', status: 'Selesai', tech: 'React', description: '', year: '2024', createdBy: 'u1', updatedAt: '2026-01-03T00:00:00Z' },
+  { id: '1', name: 'Absensi', owner: 'Budi', type: 'internal', status: 'Selesai', tech: 'React', description: '', year: '2024', startDate: '2024-05-02', createdBy: 'u1', updatedAt: '2026-01-03T00:00:00Z' },
   { id: '2', name: 'bot telegram', owner: 'Siti', type: 'personal', status: 'Ide', tech: 'Python', description: 'notifikasi', year: '2026', createdBy: 'u2', updatedAt: '2026-01-05T00:00:00Z' },
   { id: '3', name: 'Católogo', owner: 'Dewi', type: 'internal', status: 'Dikerjakan', tech: 'Laravel, MySQL', description: '', year: '', createdBy: 'u1', updatedAt: '2026-01-01T00:00:00Z' },
-  { id: '4', name: 'Booking Ruang', owner: 'Budi', type: 'internal', status: 'Ide', tech: '', description: 'rapat', year: '2026', createdBy: 'u2', updatedAt: '2026-01-04T00:00:00Z' },
+  { id: '4', name: 'Booking Ruang', owner: 'Budi', type: 'internal', status: 'Ide', tech: '', description: 'rapat', year: '2026', startDate: '2026-01-15', createdBy: 'u2', updatedAt: '2026-01-04T00:00:00Z' },
 ];
 const ids = list => list.map(app => app.id);
 
@@ -54,9 +54,17 @@ test('initials dan techList', () => {
   assert.deepEqual(techList(null), []);
 });
 
-test('blankApp memakai tahun berjalan', () => {
-  assert.equal(blankApp().year, String(new Date().getFullYear()));
+test('blankApp memakai tanggal hari ini', () => {
+  assert.equal(blankApp().startDate, todayISO());
+  assert.equal(todayISO(new Date(2026, 0, 5)), '2026-01-05');
   assert.notEqual(blankApp(), blankApp());
+});
+
+test('formatPeriod: rentang, masih berjalan, dan data lama', () => {
+  assert.match(formatPeriod({ startDate: '2026-03-01', endDate: '2026-03-10' }), /2026 – 10/);
+  assert.match(formatPeriod({ startDate: '2026-03-01', endDate: '' }), /^Sejak 1 Mar/);
+  assert.equal(formatPeriod({ startDate: '', year: '2024' }), '2024');
+  assert.equal(formatPeriod({}), '');
 });
 
 function mockFetch(handler) {
