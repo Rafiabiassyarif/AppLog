@@ -3,11 +3,13 @@
   "version": "1.0.0",
   "description": "Aplikasi web sederhana untuk mendata aplikasi internal Kroombox dan proyek personal anggota.",
   "main": "server.cjs",
+  "type": "module",
   "scripts": {
     "start": "node server.cjs",
+    "start:lan": "node server.cjs --lan",
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",
-    "test": "node --test \"tests/*.test.cjs\"",
+    "test": "node --test \"tests/*.test.cjs\" \"tests/*.test.mjs\"",
     "lint": "eslint .",
     "reset-password": "node scripts/reset-password.cjs"
   },

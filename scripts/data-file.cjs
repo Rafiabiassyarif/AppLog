@@ -14,7 +14,7 @@ function openData() {
 
 function saveData(file, db) {
   if (fs.existsSync(file)) {
-    const backupDir = path.join(path.dirname(file), 'backups');
+    const backupDir = process.env.BACKUP_DIR || path.join(path.dirname(file), 'backups');
     fs.mkdirSync(backupDir, { recursive: true });
     fs.copyFileSync(file, path.join(backupDir, `registry-${Date.now()}-script.json`));
   }

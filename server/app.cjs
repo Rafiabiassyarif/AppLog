@@ -38,8 +38,8 @@ const SECURITY_HEADERS = {
 const publicUser = user => ({ id: user.id, name: user.name, username: user.username, role: user.role, active: user.active });
 const isLoopback = ip => ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(ip);
 
-function createApp({ dataFile = path.join(ROOT, 'data', 'registry.json'), distDir = path.join(ROOT, 'dist'), trustProxy = false, secureCookie = false } = {}) {
-  const store = createStore(dataFile);
+function createApp({ dataFile = path.join(ROOT, 'data', 'registry.json'), distDir = path.join(ROOT, 'dist'), backupDir, trustProxy = false, secureCookie = false } = {}) {
+  const store = createStore(dataFile, backupDir ? { backupDir } : {});
   const { db } = store;
   const sessions = createSessions(store);
   const limiter = createLoginLimiter();

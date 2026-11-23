@@ -39,8 +39,7 @@ function normalize(raw) {
  * Penyimpanan JSON untuk satu proses server.
  * Setiap penulisan atomik (tmp + rename) dan snapshot backup dibuat berkala.
  */
-function createStore(dataFile, { keepBackups = 30 } = {}) {
-  const backupDir = path.join(path.dirname(dataFile), 'backups');
+function createStore(dataFile, { keepBackups = 30, backupDir = path.join(path.dirname(dataFile), 'backups') } = {}) {
   fs.mkdirSync(path.dirname(dataFile), { recursive: true });
   fs.mkdirSync(backupDir, { recursive: true });
 
