@@ -1,2 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="18" fill="#133c7e"/><path d="M17 45 29 17h8l12 28H38l-5-15-6 15Z" fill="#ffffff"/><rect x="36" y="39" width="12" height="4" rx="2" fill="#fff"/><rect x="39" y="47" width="9" height="4" rx="2" fill="#fff"/></svg>
-
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">AppLog</title>
+  <rect width="64" height="64" rx="14" fill="#133c7e"/>
+  <g transform="translate(0 1)">
+    <!-- The spine and folded cover form the A of AppLog. -->
+    <path d="M9 46 24 13h9L18 46Z" fill="#fff"/>
+    <path d="m33 13 10 21H32l-4-9z" fill="#a8caff"/>
+    <!-- Two entries extend from the fold like lines in a register. -->
+    <path d="M29 29h20l3 6H26zM24 40h28l3 6H21z" fill="#fff"/>
+  </g>
+</svg>
