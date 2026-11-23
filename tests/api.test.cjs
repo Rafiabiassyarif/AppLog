@@ -341,6 +341,11 @@ it('proyek: tim, spesifikasi, dan hak akses anggota', async () => {
   assert.deepEqual([soloEdit.data.client, soloEdit.data.deadline, soloEdit.data.members.length, soloEdit.data.specs.length], ['Bu Dosen', '2026-12-31', 0, 0]);
   const own = await budi('/api/apps', { method: 'POST', body: { name: 'Catatan Budi', owner: 'x', type: 'personal', status: 'Ide' } });
   assert.equal(own.status, 201);
+  // Ganti nama profil: nama pembuat di aplikasinya ikut berubah.
+  const oldName = own.data.owner;
+  assert.equal((await budi('/api/profile', { method: 'PATCH', body: { name: 'Budi Baru' } })).status, 200);
+  assert.equal((await budi('/api/apps')).data.find(a => a.id === own.data.id).owner, 'Budi Baru');
+  assert.equal((await budi('/api/profile', { method: 'PATCH', body: { name: oldName } })).status, 200);
   const converted = await budi(`/api/apps/${own.data.id}`, { method: 'PUT', body: { ...own.data, type: 'project', client: 'Kampus', members: [ids.citra], leadId: ids.citra } });
   assert.equal(converted.status, 200, 'User boleh mengubah aplikasinya jadi proyek');
   assert.equal(converted.data.members.length, 0);

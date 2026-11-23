@@ -201,6 +201,8 @@ function createDb(config = configFromEnv()) {
     const appColumns = (await q("SELECT COLUMN_NAME AS name FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'apps'")).map(c => c.name);
     if (!appColumns.includes('client')) await pool.query("ALTER TABLE apps ADD COLUMN client VARCHAR(120) NOT NULL DEFAULT '' AFTER end_date");
     if (!appColumns.includes('deadline')) await pool.query('ALTER TABLE apps ADD COLUMN deadline DATE NULL AFTER client');
+    // Nama pembuat aplikasi User selalu nama akunnya. Perbaiki data lama yang tertinggal setelah ganti nama.
+    await pool.query("UPDATE apps a JOIN users u ON u.id = a.created_by SET a.owner = u.name WHERE u.role <> 'admin' AND a.owner <> u.name");
   }
 
   /** Lengkapi aplikasi dengan anggota tim dan spesifikasi (dipakai jenis Proyek). */
@@ -231,6 +233,11 @@ function createDb(config = configFromEnv()) {
     async update(id, fields) {
       const allowed = ['name', 'role', 'active', 'salt', 'hash', 'photo', 'bio'].filter(key => key in fields);
       if (!allowed.length) return;
+      // Ganti nama: nama pembuat di aplikasinya ikut diganti, supaya tetap terhubung ke profilnya.
+      if ('name' in fields) {
+        const old = (await q('SELECT name FROM users WHERE id = ?', [id]))[0];
+        if (old && old.name !== fields.name) await q('UPDATE apps SET owner = ? WHERE created_by = ? AND owner = ?', [fields.name, id, old.name]);
+      }
       await q(`UPDATE users SET ${allowed.map(key => `${key} = ?`).join(', ')} WHERE id = ?`,
         [...allowed.map(key => (key === 'active' ? (fields[key] ? 1 : 0) : fields[key])), id]);
     },
