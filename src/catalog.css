@@ -1,0 +1,43 @@
+:root {
+  --green-900:#133c7e; --green-800:#103167; --lime-200:#dbe7fa;
+  --gray-900:#15181d; --gray-600:#596270; --gray-500:#697384; --gray-200:#dee2e8;
+  --soft:#eef2f8; --font-heading:'Space Grotesk',Arial,sans-serif;
+  --font-body:Inter,system-ui,sans-serif; --focus-ring:0 0 0 3px #a9c5ee;
+}
+.team-portal {background:#fafbfc;color:#131820;min-height:100svh;display:flex;flex-direction:column;font-family:var(--font-body)}
+.portal-bar,.portal-foot {display:flex;align-items:center;justify-content:space-between;padding:18px max(6vw,calc((100vw - 1180px)/2));background:white;border-bottom:1px solid var(--line)}
+.portal-bar>span,.portal-foot {font:500 12px/1.5 'JetBrains Mono',monospace;color:#546174}
+.portal-bar>span,.portal-owner {display:flex;align-items:center;gap:9px}
+.portal-main {display:grid;align-items:center;flex:1;padding:clamp(28px,6vw,90px) max(6vw,calc((100vw - 1180px)/2));background-image:linear-gradient(#182e4710 1px,transparent 1px),linear-gradient(90deg,#182e4710 1px,transparent 1px);background-size:32px 32px}
+.portal-card {width:100%;overflow:hidden;background:white;border:1px solid #cdd3db;border-radius:14px;display:grid;grid-template-columns:1.1fr .9fr;box-shadow:0 16px 48px #1722380b}
+.portal-copy {padding:clamp(28px,4.8vw,75px)}
+.portal-owner {font:700 18px var(--font-heading);color:#133c7e;letter-spacing:-.045em}
+.portal-owner img {width:28px;height:28px}
+.portal-copy h1 {font:700 clamp(46px,5.8vw,86px)/.98 var(--font-heading);letter-spacing:-.065em;margin:25px 0 18px}
+.portal-copy p {max-width:435px;color:#535c69;font-size:16px;line-height:1.65;margin:0 0 24px}
+.portal-copy small {display:block;color:#596270;font-size:12px;margin-top:14px}
+.portal-art,.login-page .login-visual {background:#10264a linear-gradient(#10264a60,#0f244a9c) center/cover}
+.portal-art {background-image:linear-gradient(135deg,#0a17344f,#102b5d80),url('./kroombox-hero.jpg?inline');display:grid;place-items:center}
+.portal-art img {width:42%;filter:brightness(0) invert(1) drop-shadow(0 4px 18px #14264770)}
+.portal-foot {border:0;border-top:1px solid var(--line);font-size:11px}
+.login-page .login-visual {background-image:linear-gradient(135deg,#0c1835bd,#10294feb),url('./kroombox-hero.jpg?inline')}
+.login-page .login-pitch h1 {color:white;letter-spacing:-.065em}
+.login-mark {width:64px;filter:brightness(0) invert(1)}
+.login-form-side,.workspace-main,.page-content {background:#fafbfc}
+body .btn-primary,.portal-copy .btn,.workspace .nav-item.active {background:#133c7e;color:#fff}
+body .btn-primary:hover,.portal-copy .btn:hover {background:#102f65}
+.workspace .workspace-banner {background:#102b52;color:white}
+.workspace .workspace-banner h2,.workspace .workspace-banner p,.workspace .workspace-banner .tiny-label {color:white}
+.workspace .stat-card:first-child,.workspace .workspace-tag,.workspace .sidebar-help,.login-form .welcome-icon {background:#edf2fb;color:#193864}
+.workspace .registry,.workspace .stat-card {border-color:#dde2e9;box-shadow:none}
+.workspace .apps-table thead th {background:#f4f6f8}
+.workspace .nav-item.active small {color:#133c7e;background:white}
+@media(max-width:730px){
+ .portal-card {grid-template-columns:1fr}
+ .portal-art {grid-row:1;min-height:132px;background-position:center}
+ .portal-art img {width:72px}
+ .portal-copy {padding:27px}
+ .portal-copy h1 {margin-top:18px}
+ .portal-bar,.portal-foot {padding-inline:5vw}
+ .portal-main {padding:24px 5vw}
+}
