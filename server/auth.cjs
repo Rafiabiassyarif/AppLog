@@ -57,6 +57,13 @@ function createSessions(db) {
   return { create, find, destroy, destroyForUser, prune: () => db.sessions.prune(), maxAgeSeconds: SESSION_MS / 1000 };
 }
 
+/** Token API: "applog_" + 64 hex. Dikembalikan sekali saat dibuat; server hanya menyimpan hash. */
+function createApiToken() {
+  const token = 'applog_' + crypto.randomBytes(32).toString('hex');
+  return { token, hash: tokenId(token), hint: token.slice(-4) };
+}
+const apiTokenHash = token => (/^applog_[a-f0-9]{64}$/.test(token || '') ? tokenId(token) : null);
+
 /**
  * Pembatas login: hanya kegagalan yang dihitung.
  * Batas per kombinasi IP+username dan batas lebih longgar per IP.
@@ -95,4 +102,4 @@ function createLoginLimiter({ windowMs = 15 * 60 * 1000, perAccount = 5, perIp =
   return { blocked, fail, success, prune };
 }
 
-module.exports = { makeCredentials, verifyPassword, randomPassword, createSessions, createLoginLimiter };
+module.exports = { makeCredentials, verifyPassword, randomPassword, createSessions, createLoginLimiter, createApiToken, apiTokenHash };

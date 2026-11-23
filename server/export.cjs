@@ -4,7 +4,20 @@ const ExcelJS = require('exceljs');
 const PDFDocument = require('pdfkit');
 
 const COLUMNS = ['No.', 'Nama aplikasi', 'Jenis', 'Status', 'Pembuat', 'Mulai', 'Selesai', 'Teknologi', 'Link', 'Deskripsi'];
-const typeLabel = app => (app.type === 'internal' ? 'Internal Kroombox' : 'Personal');
+const typeLabel = app => {
+  if (app.type === 'project') return app.client ? `Proyek (${app.client})` : 'Proyek';
+  return app.type === 'internal' ? 'Internal Kroombox' : 'Personal';
+};
+const SHORT_TYPE = { internal: 'Internal', personal: 'Personal', project: 'Proyek' };
+const projectLine = app => {
+  const done = (app.specs || []).filter(s => s.done).length;
+  return [
+    app.client && `Pemberi: ${app.client}`,
+    app.deadline && `Tenggat: ${formatDate(app.deadline)}`,
+    (app.specs || []).length && `Spesifikasi: ${done}/${app.specs.length}`,
+    (app.members || []).length && `Tim: ${app.members.length} orang`,
+  ].filter(Boolean).join('  |  ');
+};
 const formatDate = value => (value ? new Date(value + 'T00:00:00Z').toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }) : '');
 const startText = app => formatDate(app.startDate) || app.year || '';
 const period = app => {
@@ -84,7 +97,8 @@ function writePdf(res, rows) {
   rows.forEach((app, index) => {
     const parts = [
       { text: `${index + 1}. ${app.name}`, size: 13, color: '#143d32', gap: 7 },
-      { text: `${app.type === 'internal' ? 'Internal' : 'Personal'}  |  ${app.status}  |  ${app.owner}  |  ${period(app)}`, size: 9, color: '#6a7866', gap: 5 },
+      ...(app.type === 'project' && projectLine(app) ? [{ text: projectLine(app), size: 9, color: '#6a7866', gap: 5 }] : []),
+      { text: `${SHORT_TYPE[app.type] || app.type}  |  ${app.status}  |  ${app.owner}  |  ${period(app)}`, size: 9, color: '#6a7866', gap: 5 },
       { text: `Teknologi: ${app.tech || '-'}`, size: 9, color: '#6a7866', gap: 5 },
       { text: `Link: ${app.link || '-'}`, size: 9, color: '#6a7866', gap: 7 },
       { text: app.description || '-', size: 10, color: '#3d4c36', gap: 0 },

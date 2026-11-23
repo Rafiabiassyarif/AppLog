@@ -1,13 +1,14 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { RotateCcw, Trash2, Loader2 } from 'lucide-react';
 import { api } from '../lib/api.js';
-import { Badge, ConfirmModal, PageHeading } from '../components.jsx';
+import { Badge, Button, ConfirmModal, PageHeading } from '../components.jsx';
 import { TYPE_LABEL, formatDateTime } from '../lib/format.js';
 
 export default function TrashView({ info, admin, reload, notify }) {
   const [items, setItems] = useState(null);
   const [error, setError] = useState('');
-  const [purging, setPurging] = useState(null);
+  // { kind: 'purge', app } | { kind: 'purgeAll' } | { kind: 'restoreAll' }
+  const [confirm, setConfirm] = useState(null);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -32,13 +33,12 @@ export default function TrashView({ info, admin, reload, notify }) {
     }
   }
 
-  async function purge() {
+  async function run(action) {
     setBusy(true);
     try {
-      await api(`/api/trash/${purging.id}`, { method: 'DELETE' });
-      await load();
-      setPurging(null);
-      notify('Aplikasi dihapus permanen.');
+      const message = await action();
+      setConfirm(null);
+      notify(message);
     } catch (e) {
       notify(e.message, 'error');
     } finally {
@@ -46,14 +46,42 @@ export default function TrashView({ info, admin, reload, notify }) {
     }
   }
 
+  const purge = app => run(async () => {
+    await api(`/api/trash/${app.id}`, { method: 'DELETE' });
+    await load();
+    return `${app.name} dihapus permanen.`;
+  });
+
+  const purgeAll = () => run(async () => {
+    const { removed } = await api('/api/trash', { method: 'DELETE' });
+    await load();
+    return `${removed} aplikasi dihapus permanen.`;
+  });
+
+  const restoreAll = () => run(async () => {
+    const { restored, skipped } = await api('/api/trash/restore', { method: 'POST' });
+    await Promise.all([load(), reload()]);
+    const done = `${restored.length} aplikasi dipulihkan.`;
+    return skipped.length ? `${done} Dilewati karena namanya sudah dipakai: ${skipped.join(', ')}.` : done;
+  });
+
+  const count = items?.length ?? 0;
+  const scope = admin ? 'Semua aplikasi di Sampah' : 'Semua aplikasi milikmu di Sampah';
+
   return (
     <>
       <PageHeading info={info} />
       <section className="registry">
         <div className="section-title">
           <div>
-            <h2>Aplikasi terhapus<span className="count-badge">{items?.length ?? 0}</span></h2>
+            <h2>Aplikasi terhapus<span className="count-badge">{count}</span></h2>
           </div>
+          {count > 0 && (
+            <div className="trash-actions">
+              <Button secondary onClick={() => setConfirm({ kind: 'restoreAll' })}><RotateCcw size={15} />Pulihkan semua</Button>
+              <Button danger onClick={() => setConfirm({ kind: 'purgeAll' })}><Trash2 size={15} />Hapus semua</Button>
+            </div>
+          )}
         </div>
         {error && <div className="error-banner" role="alert">{error}<button onClick={load}>Coba lagi</button></div>}
         {!items ? (
@@ -75,7 +103,7 @@ export default function TrashView({ info, admin, reload, notify }) {
                     <td>
                       <div className="row-actions">
                         <button className="icon-btn" title="Pulihkan" aria-label={`Pulihkan ${app.name}`} onClick={() => restore(app)}><RotateCcw size={15} /></button>
-                        {admin && <button className="icon-btn danger" title="Hapus permanen" aria-label={`Hapus permanen ${app.name}`} onClick={() => setPurging(app)}><Trash2 size={15} /></button>}
+                        <button className="icon-btn danger" title="Hapus permanen" aria-label={`Hapus permanen ${app.name}`} onClick={() => setConfirm({ kind: 'purge', app })}><Trash2 size={15} /></button>
                       </div>
                     </td>
                   </tr>
@@ -85,15 +113,38 @@ export default function TrashView({ info, admin, reload, notify }) {
           </div>
         )}
       </section>
-      {purging && (
+      {confirm?.kind === 'purge' && (
         <ConfirmModal
           title="Hapus permanen?"
           subtitle="Tindakan ini tidak dapat dibatalkan."
-          message={<><b>{purging.name}</b> akan dihapus selamanya dari data AppLog.</>}
+          message={<><b>{confirm.app.name}</b> akan dihapus selamanya dari data AppLog.</>}
           confirmLabel="Hapus permanen"
           busy={busy}
-          onConfirm={purge}
-          close={() => setPurging(null)}
+          onConfirm={() => purge(confirm.app)}
+          close={() => setConfirm(null)}
+        />
+      )}
+      {confirm?.kind === 'purgeAll' && (
+        <ConfirmModal
+          title="Hapus semua permanen?"
+          subtitle="Tindakan ini tidak dapat dibatalkan."
+          message={<>{scope} (<b>{count} aplikasi</b>) akan dihapus selamanya dari data AppLog.</>}
+          confirmLabel="Hapus semua"
+          busy={busy}
+          onConfirm={purgeAll}
+          close={() => setConfirm(null)}
+        />
+      )}
+      {confirm?.kind === 'restoreAll' && (
+        <ConfirmModal
+          title="Pulihkan semua?"
+          subtitle="Aplikasi kembali ke daftar aplikasi."
+          message={<>{scope} (<b>{count} aplikasi</b>) akan dipulihkan. Aplikasi yang namanya sudah dipakai akan dilewati.</>}
+          confirmLabel="Pulihkan semua"
+          danger={false}
+          busy={busy}
+          onConfirm={restoreAll}
+          close={() => setConfirm(null)}
         />
       )}
     </>

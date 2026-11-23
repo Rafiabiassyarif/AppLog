@@ -14,6 +14,8 @@ const SCHEMA = [
     active TINYINT(1) NOT NULL DEFAULT 1,
     salt CHAR(32) NOT NULL,
     hash CHAR(128) NOT NULL,
+    photo MEDIUMTEXT NULL,
+    bio VARCHAR(280) NULL,
     created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     UNIQUE KEY uq_users_username (username)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
@@ -38,6 +40,8 @@ const SCHEMA = [
     logo MEDIUMTEXT NULL,
     start_date DATE NULL,
     end_date DATE NULL,
+    client VARCHAR(120) NOT NULL DEFAULT '',
+    deadline DATE NULL,
     created_by CHAR(36) NULL,
     created_at DATETIME(3) NOT NULL,
     updated_at DATETIME(3) NOT NULL,
@@ -45,6 +49,36 @@ const SCHEMA = [
     deleted_by CHAR(36) NULL,
     KEY idx_apps_deleted (deleted_at),
     KEY idx_apps_created_by (created_by)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+  `CREATE TABLE IF NOT EXISTS app_members (
+    app_id CHAR(36) NOT NULL,
+    user_id CHAR(36) NOT NULL,
+    is_lead TINYINT(1) NOT NULL DEFAULT 0,
+    PRIMARY KEY (app_id, user_id),
+    KEY idx_app_members_user (user_id),
+    CONSTRAINT fk_app_members_app FOREIGN KEY (app_id) REFERENCES apps (id) ON DELETE CASCADE,
+    CONSTRAINT fk_app_members_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+  `CREATE TABLE IF NOT EXISTS app_specs (
+    id CHAR(36) NOT NULL PRIMARY KEY,
+    app_id CHAR(36) NOT NULL,
+    text VARCHAR(200) NOT NULL,
+    done TINYINT(1) NOT NULL DEFAULT 0,
+    position INT NOT NULL DEFAULT 0,
+    KEY idx_app_specs_app (app_id),
+    CONSTRAINT fk_app_specs_app FOREIGN KEY (app_id) REFERENCES apps (id) ON DELETE CASCADE
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+  `CREATE TABLE IF NOT EXISTS api_tokens (
+    id CHAR(36) NOT NULL PRIMARY KEY,
+    user_id CHAR(36) NOT NULL,
+    name VARCHAR(60) NOT NULL,
+    token_hash CHAR(64) NOT NULL,
+    hint VARCHAR(16) NOT NULL DEFAULT '',
+    created_at DATETIME(3) NOT NULL,
+    last_used_at DATETIME(3) NULL,
+    UNIQUE KEY uq_api_tokens_hash (token_hash),
+    KEY idx_api_tokens_user (user_id),
+    CONSTRAINT fk_api_tokens_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
   `CREATE TABLE IF NOT EXISTS audit (
     seq BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -94,6 +128,8 @@ const rowToUser = row => row && ({
   active: Boolean(row.active),
   salt: row.salt,
   hash: row.hash,
+  photo: row.photo || '',
+  bio: row.bio || '',
 });
 
 const rowToApp = row => row && ({
@@ -109,6 +145,10 @@ const rowToApp = row => row && ({
   logo: row.logo || '',
   startDate: row.start_date || '',
   endDate: row.end_date || '',
+  client: row.client || '',
+  deadline: row.deadline || '',
+  members: [],
+  specs: [],
   createdBy: row.created_by,
   createdAt: iso(row.created_at),
   updatedAt: iso(row.updated_at),
@@ -118,7 +158,7 @@ const rowToApp = row => row && ({
 
 const APP_COLUMNS = {
   name: 'name', owner: 'owner', type: 'type', status: 'status', tech: 'tech', link: 'link',
-  description: 'description', year: 'year', logo: 'logo', startDate: 'start_date', endDate: 'end_date',
+  description: 'description', year: 'year', logo: 'logo', startDate: 'start_date', endDate: 'end_date', client: 'client', deadline: 'deadline',
   createdBy: 'created_by', createdAt: 'created_at', updatedAt: 'updated_at', deletedAt: 'deleted_at', deletedBy: 'deleted_by',
 };
 const APP_DATES = new Set(['createdAt', 'updatedAt', 'deletedAt']);
@@ -130,7 +170,7 @@ function appValues(fields) {
     if (!APP_COLUMNS[key]) continue;
     columns.push(APP_COLUMNS[key]);
     if (APP_DATES.has(key)) values.push(toDate(value));
-    else if (key === 'startDate' || key === 'endDate') values.push(dateOrNull(value));
+    else if (key === 'startDate' || key === 'endDate' || key === 'deadline') values.push(dateOrNull(value));
     else values.push(value ?? null);
   }
   return { columns, values };
@@ -153,7 +193,29 @@ function createDb(config = configFromEnv()) {
 
   async function init() {
     for (const statement of SCHEMA) await pool.query(statement);
+    // Database lama: tambahkan kolom profil bila belum ada.
+    const columns = (await q("SELECT COLUMN_NAME AS name FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users'")).map(c => c.name);
+    if (!columns.includes('photo')) await pool.query('ALTER TABLE users ADD COLUMN photo MEDIUMTEXT NULL AFTER hash');
+    if (!columns.includes('bio')) await pool.query('ALTER TABLE users ADD COLUMN bio VARCHAR(280) NULL AFTER photo');
+    // Kolom proyek (client, tenggat) untuk database lama.
+    const appColumns = (await q("SELECT COLUMN_NAME AS name FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'apps'")).map(c => c.name);
+    if (!appColumns.includes('client')) await pool.query("ALTER TABLE apps ADD COLUMN client VARCHAR(120) NOT NULL DEFAULT '' AFTER end_date");
+    if (!appColumns.includes('deadline')) await pool.query('ALTER TABLE apps ADD COLUMN deadline DATE NULL AFTER client');
   }
+
+  /** Lengkapi aplikasi dengan anggota tim dan spesifikasi (dipakai jenis Proyek). */
+  async function withTeam(list) {
+    if (!list.length) return list;
+    const ids = list.map(app => app.id);
+    const marks = ids.map(() => '?').join(', ');
+    const members = await q(`SELECT app_id, user_id, is_lead FROM app_members WHERE app_id IN (${marks}) ORDER BY is_lead DESC, user_id`, ids);
+    const specs = await q(`SELECT id, app_id, text, done FROM app_specs WHERE app_id IN (${marks}) ORDER BY position, id`, ids);
+    const byId = Object.fromEntries(list.map(app => [app.id, app]));
+    for (const m of members) byId[m.app_id].members.push({ userId: m.user_id, lead: Boolean(m.is_lead) });
+    for (const s of specs) byId[s.app_id].specs.push({ id: s.id, text: s.text, done: Boolean(s.done) });
+    return list;
+  }
+  const one = async row => (row ? (await withTeam([rowToApp(row)]))[0] : null);
 
   const users = {
     count: async () => (await q('SELECT COUNT(*) AS n FROM users'))[0].n,
@@ -167,7 +229,7 @@ function createDb(config = configFromEnv()) {
       return user;
     },
     async update(id, fields) {
-      const allowed = ['name', 'role', 'active', 'salt', 'hash'].filter(key => key in fields);
+      const allowed = ['name', 'role', 'active', 'salt', 'hash', 'photo', 'bio'].filter(key => key in fields);
       if (!allowed.length) return;
       await q(`UPDATE users SET ${allowed.map(key => `${key} = ?`).join(', ')} WHERE id = ?`,
         [...allowed.map(key => (key === 'active' ? (fields[key] ? 1 : 0) : fields[key])), id]);
@@ -186,11 +248,39 @@ function createDb(config = configFromEnv()) {
     prune: async (now = Date.now()) => (await q('DELETE FROM sessions WHERE expires <= ?', [now])).affectedRows,
   };
 
+  // Token API untuk AI agent (MCP). Yang disimpan hanya hash SHA-256.
+  const rowToToken = row => ({ id: row.id, name: row.name, hint: row.hint, createdAt: iso(row.created_at), lastUsedAt: iso(row.last_used_at) });
+  const tokens = {
+    insert: async t => q('INSERT INTO api_tokens (id, user_id, name, token_hash, hint, created_at) VALUES (?, ?, ?, ?, ?, ?)', [t.id, t.userId, t.name, t.hash, t.hint, new Date()]),
+    forUser: async userId => (await q('SELECT * FROM api_tokens WHERE user_id = ? ORDER BY created_at DESC', [userId])).map(rowToToken),
+    count: async userId => (await q('SELECT COUNT(*) AS n FROM api_tokens WHERE user_id = ?', [userId]))[0].n,
+    async findUser(hash) {
+      const rows = await q('SELECT u.*, t.id AS token_id FROM api_tokens t JOIN users u ON u.id = t.user_id WHERE t.token_hash = ? AND u.active = 1', [hash]);
+      if (!rows[0]) return null;
+      await q('UPDATE api_tokens SET last_used_at = ? WHERE id = ?', [new Date(), rows[0].token_id]);
+      return rowToUser(rows[0]);
+    },
+    remove: async (id, userId) => (await q('DELETE FROM api_tokens WHERE id = ? AND user_id = ?', [id, userId])).affectedRows,
+  };
+
   const apps = {
-    all: async () => (await q('SELECT * FROM apps')).map(rowToApp),
-    active: async () => (await q('SELECT * FROM apps WHERE deleted_at IS NULL')).map(rowToApp),
-    trash: async () => (await q('SELECT * FROM apps WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC')).map(rowToApp),
-    byId: async id => rowToApp((await q('SELECT * FROM apps WHERE id = ?', [id]))[0]) || null,
+    all: async () => withTeam((await q('SELECT * FROM apps')).map(rowToApp)),
+    active: async () => withTeam((await q('SELECT * FROM apps WHERE deleted_at IS NULL')).map(rowToApp)),
+    trash: async () => withTeam((await q('SELECT * FROM apps WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC')).map(rowToApp)),
+    byId: async id => one((await q('SELECT * FROM apps WHERE id = ?', [id]))[0]),
+    /** Ganti seluruh anggota tim: [{ userId, lead }]. */
+    async setMembers(appId, members) {
+      await q('DELETE FROM app_members WHERE app_id = ?', [appId]);
+      for (const m of members) await q('INSERT INTO app_members (app_id, user_id, is_lead) VALUES (?, ?, ?)', [appId, m.userId, m.lead ? 1 : 0]);
+    },
+    /** Ganti seluruh spesifikasi: [{ id?, text, done }]. Urutan mengikuti array. */
+    async setSpecs(appId, specs) {
+      await q('DELETE FROM app_specs WHERE app_id = ?', [appId]);
+      for (const [i, s] of specs.entries()) {
+        await q('INSERT INTO app_specs (id, app_id, text, done, position) VALUES (?, ?, ?, ?, ?)', [s.id || crypto.randomUUID(), appId, s.text, s.done ? 1 : 0, i]);
+      }
+    },
+    setSpecDone: async (appId, specId, done) => (await q('UPDATE app_specs SET done = ? WHERE id = ? AND app_id = ?', [done ? 1 : 0, specId, appId])).affectedRows,
     /** Nama aplikasi aktif unik tanpa membedakan huruf besar/kecil (dibandingkan di JS seperti versi lama). */
     async nameTaken(name, exceptId = '') {
       const lower = name.toLowerCase();
@@ -229,12 +319,20 @@ function createDb(config = configFromEnv()) {
         detail: row.detail || '',
       }));
     },
+    async remove(id) {
+      const [result] = await pool.query('DELETE FROM audit WHERE id = ?', [id]);
+      return result.affectedRows;
+    },
+    async clear() {
+      const [result] = await pool.query('DELETE FROM audit');
+      return result.affectedRows;
+    },
     /** Dipakai skrip migrasi: memasukkan catatan lama apa adanya. */
     insertRaw: async entry => q('INSERT INTO audit (id, at, user_id, user_name, action, target, detail) VALUES (?, ?, ?, ?, ?, ?, ?)',
       [entry.id || crypto.randomUUID(), toDate(entry.at) || new Date(), entry.userId || null, entry.userName || 'Sistem', entry.action || '', String(entry.target || '').slice(0, 255), entry.detail || '']),
   };
 
-  return { pool, init, close: () => pool.end(), users, sessions, apps, audit, config };
+  return { pool, init, close: () => pool.end(), users, sessions, tokens, apps, audit, config };
 }
 
 module.exports = { createDb, configFromEnv };

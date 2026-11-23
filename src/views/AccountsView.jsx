@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, ShieldCheck, UserRound, Pencil, KeyRound, Trash2, Power, Copy } from 'lucide-react';
+import { Plus, ShieldCheck, UserRound, Pencil, KeyRound, Trash2, Power } from 'lucide-react';
 import { api } from '../lib/api.js';
 import { Avatar, Button, ConfirmModal, Modal, PageHeading } from '../components.jsx';
 
@@ -69,24 +69,48 @@ function AccountForm({ account, close, onSaved }) {
   );
 }
 
-function PasswordReveal({ result, close }) {
-  const [copied, setCopied] = useState(false);
-  async function copy() {
+// Admin mengetik sendiri password baru untuk anggota (tidak dibuat acak).
+function ResetPasswordForm({ account, close, onSaved }) {
+  const [form, setForm] = useState({ password: '', confirm: '' });
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const set = key => event => setForm({ ...form, [key]: event.target.value });
+
+  async function submit(event) {
+    event.preventDefault();
+    setError('');
+    if (form.password !== form.confirm) {
+      setError('Konfirmasi password tidak sama.');
+      return;
+    }
+    setBusy(true);
     try {
-      await navigator.clipboard.writeText(result.password);
-      setCopied(true);
-    } catch {
-      setCopied(false);
+      await api(`/api/users/${account.id}/reset-password`, { method: 'POST', body: { password: form.password } });
+      await onSaved(`Password @${account.username} berhasil diubah. Semua sesinya diakhiri.`);
+    } catch (e) {
+      setError(e.message);
+      setBusy(false);
     }
   }
+
   return (
-    <Modal title="Password baru" subtitle={`Untuk @${result.username}`} close={close}>
-      <p className="delete-description">Password hanya tampil sekali. Berikan ke anggota.</p>
-      <div className="password-reveal">
-        <code>{result.password}</code>
-        <Button secondary type="button" onClick={copy}><Copy size={15} />{copied ? 'Tersalin' : 'Salin'}</Button>
-      </div>
-      <div className="modal-footer"><Button type="button" onClick={close}>Selesai</Button></div>
+    <Modal title="Ubah password anggota" subtitle={`@${account.username}`} close={close}>
+      <form onSubmit={submit}>
+        <div className="form-grid">
+          <label className="full">Password baru
+            <input required autoFocus type="password" minLength={8} maxLength={128} autoComplete="new-password" value={form.password} onChange={set('password')} />
+            <small>Minimal 8 karakter. Berikan password ini ke anggota.</small>
+          </label>
+          <label className="full">Ulangi password baru
+            <input required type="password" maxLength={128} autoComplete="new-password" value={form.confirm} onChange={set('confirm')} />
+          </label>
+        </div>
+        {error && <p className="error" role="alert">{error}</p>}
+        <div className="modal-footer">
+          <Button secondary type="button" onClick={close} disabled={busy}>Batal</Button>
+          <Button disabled={busy}>{busy ? 'Menyimpan...' : 'Simpan password'}</Button>
+        </div>
+      </form>
     </Modal>
   );
 }
@@ -94,17 +118,14 @@ function PasswordReveal({ result, close }) {
 export default function AccountsView({ info, users, currentUser, reload, notify }) {
   const [form, setForm] = useState(null); // null | 'new' | user
   const [confirm, setConfirm] = useState(null); // { kind, user }
-  const [reveal, setReveal] = useState(null);
+  const [resetting, setResetting] = useState(null);
   const [busy, setBusy] = useState(false);
 
   async function runConfirm() {
     const { kind, user } = confirm;
     setBusy(true);
     try {
-      if (kind === 'reset') {
-        const { password } = await api(`/api/users/${user.id}/reset-password`, { method: 'POST' });
-        setReveal({ username: user.username, password });
-      } else if (kind === 'toggle') {
+      if (kind === 'toggle') {
         await api(`/api/users/${user.id}`, { method: 'PATCH', body: { active: !user.active } });
         notify(user.active ? 'Akun dinonaktifkan.' : 'Akun diaktifkan kembali.');
       } else if (kind === 'delete') {
@@ -121,7 +142,6 @@ export default function AccountsView({ info, users, currentUser, reload, notify 
   }
 
   const confirmText = confirm && {
-    reset: { title: 'Reset password?', message: <>Password <b>@{confirm.user.username}</b> akan diganti dengan password acak dan semua sesinya diakhiri.</>, label: 'Reset password', danger: false },
     toggle: confirm.user.active
       ? { title: 'Nonaktifkan akun?', message: <><b>{confirm.user.name}</b> tidak bisa login sampai akun diaktifkan kembali.</>, label: 'Nonaktifkan', danger: true }
       : { title: 'Aktifkan akun?', message: <><b>{confirm.user.name}</b> bisa login kembali.</>, label: 'Aktifkan', danger: false },
@@ -145,7 +165,7 @@ export default function AccountsView({ info, users, currentUser, reload, notify 
                 const self = u.id === currentUser.id;
                 return (
                   <tr key={u.id}>
-                    <td><span className="owner-cell"><Avatar name={u.name} /><b>{u.name}{self ? ' (kamu)' : ''}</b></span></td>
+                    <td><span className="owner-cell"><Avatar name={u.name} photo={u.photo} /><span className="account-name"><b>{u.name}{self ? ' (kamu)' : ''}</b>{u.bio && <small title={u.bio}>{u.bio}</small>}</span></span></td>
                     <td>@{u.username}</td>
                     <td><span className="role-pill">{u.role === 'admin' ? <ShieldCheck size={13} /> : <UserRound size={13} />} {u.role === 'admin' ? 'Admin' : 'User'}</span></td>
                     <td>{u.active ? <span className="status done"><i />Aktif</span> : <span className="status inactive"><i />Nonaktif</span>}</td>
@@ -154,7 +174,7 @@ export default function AccountsView({ info, users, currentUser, reload, notify 
                         <button className="icon-btn" title="Edit akun" aria-label={`Edit ${u.name}`} onClick={() => setForm(u)}><Pencil size={15} /></button>
                         {!self && (
                           <>
-                            <button className="icon-btn" title="Reset password" aria-label={`Reset password ${u.name}`} onClick={() => setConfirm({ kind: 'reset', user: u })}><KeyRound size={15} /></button>
+                            <button className="icon-btn" title="Ubah password" aria-label={`Ubah password ${u.name}`} onClick={() => setResetting(u)}><KeyRound size={15} /></button>
                             <button className="icon-btn" title={u.active ? 'Nonaktifkan' : 'Aktifkan'} aria-label={`${u.active ? 'Nonaktifkan' : 'Aktifkan'} ${u.name}`} onClick={() => setConfirm({ kind: 'toggle', user: u })}><Power size={15} /></button>
                             <button className="icon-btn danger" title="Hapus akun" aria-label={`Hapus ${u.name}`} onClick={() => setConfirm({ kind: 'delete', user: u })}><Trash2 size={15} /></button>
                           </>
@@ -191,7 +211,16 @@ export default function AccountsView({ info, users, currentUser, reload, notify 
           close={() => setConfirm(null)}
         />
       )}
-      {reveal && <PasswordReveal result={reveal} close={() => setReveal(null)} />}
+      {resetting && (
+        <ResetPasswordForm
+          account={resetting}
+          close={() => setResetting(null)}
+          onSaved={async message => {
+            setResetting(null);
+            notify(message);
+          }}
+        />
+      )}
     </>
   );
 }

@@ -16,7 +16,7 @@ const SORTS = {
 export function queryApps(apps, { q = '', type = 'all', status = 'all', createdBy = '', sort = 'updated' }) {
   const needle = q.trim().toLowerCase();
   return apps
-    .filter(app => !createdBy || app.createdBy === createdBy)
+    .filter(app => !createdBy || app.createdBy === createdBy || (app.members || []).some(m => m.userId === createdBy))
     .filter(app => type === 'all' || app.type === type)
     .filter(app => status === 'all' || app.status === status)
     .filter(app => !needle || [app.name, app.owner, app.tech, app.description].join(' ').toLowerCase().includes(needle))

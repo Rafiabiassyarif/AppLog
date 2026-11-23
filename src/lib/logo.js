@@ -37,3 +37,24 @@ export async function logoFromFile(file) {
   }
   throw new Error('Logo terlalu rumit untuk diperkecil. Coba gambar lain.');
 }
+
+export const PHOTO_MAX_LENGTH = 80000; // sama dengan LIMITS.photo di server/validate.cjs
+
+/** Foto profil: dipotong persegi dari tengah (cover), maks. 256 px. */
+export async function photoFromFile(file) {
+  if (!file || !ACCEPTED.includes(file.type)) throw new Error('Pilih gambar PNG, JPG, atau WebP.');
+  if (file.size > 5 * 1024 * 1024) throw new Error('Ukuran gambar maksimal 5 MB.');
+  const image = await loadImage(file);
+  const side = Math.min(image.naturalWidth, image.naturalHeight);
+  const sx = (image.naturalWidth - side) / 2;
+  const sy = (image.naturalHeight - side) / 2;
+  for (const [size, quality] of [[256, 0.85], [256, 0.7], [192, 0.7], [128, 0.7]]) {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = Math.min(size, side);
+    canvas.getContext('2d').drawImage(image, sx, sy, side, side, 0, 0, canvas.width, canvas.height);
+    let data = canvas.toDataURL('image/webp', quality);
+    if (!data.startsWith('data:image/webp')) data = canvas.toDataURL('image/jpeg', quality);
+    if (data.length <= PHOTO_MAX_LENGTH) return data;
+  }
+  throw new Error('Foto terlalu besar untuk diperkecil. Coba gambar lain.');
+}

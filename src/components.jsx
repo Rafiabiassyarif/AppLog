@@ -2,9 +2,9 @@ import React, { useEffect, useRef } from 'react';
 import { X, CheckCircle2, AlertCircle } from 'lucide-react';
 import { STATUS_CLASS, initials } from './lib/format.js';
 
-export function Brand({ light = false }) {
+export function Brand({ light = false, href = '/', onClick }) {
   return (
-    <a href="/" className={'brand ' + (light ? 'brand-light' : '')} aria-label="AppLog — Beranda">
+    <a href={href} onClick={onClick} className={'brand ' + (light ? 'brand-light' : '')} aria-label="AppLog — Beranda">
       <img src="/logo.svg" alt="" />
       <span>AppLog<span className="brand-period">.</span></span>
     </a>
@@ -30,15 +30,16 @@ export function Badge({ status }) {
   return <span className={'status ' + (STATUS_CLASS[status] || '')}><i />{status}</span>;
 }
 
-export function Avatar({ name, size = '' }) {
-  return <span className={['avatar', size].filter(Boolean).join(' ')}>{initials(name)}</span>;
+export function Avatar({ name, photo, size = '' }) {
+  const className = ['avatar', size, photo ? 'has-photo' : ''].filter(Boolean).join(' ');
+  return <span className={className}>{photo ? <img src={photo} alt="" /> : initials(name)}</span>;
 }
 
 export function Toast({ toast }) {
   if (!toast) return null;
   const Icon = toast.type === 'error' ? AlertCircle : CheckCircle2;
   return (
-    <div className={'toast ' + (toast.type === 'error' ? 'toast-error' : '')} role={toast.type === 'error' ? 'alert' : 'status'}>
+    <div key={toast.id} className={'toast ' + (toast.type === 'error' ? 'toast-error' : '')} role={toast.type === 'error' ? 'alert' : 'status'}>
       <Icon size={18} />{toast.text}
     </div>
   );
