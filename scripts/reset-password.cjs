@@ -1,22 +1,19 @@
 'use strict';
 
 // Reset password dari terminal, misalnya saat satu-satunya Admin lupa password.
-// Jalankan saat server dihentikan. Pemakaian: node scripts/reset-password.cjs username
+// Pemakaian: node scripts/reset-password.cjs username
 const crypto = require('crypto');
-const { openData, saveData, randomPassword } = require('./data-file.cjs');
+const { run, randomPassword } = require('./db-connect.cjs');
 
 const username = String(process.argv[2] || '').toLowerCase();
-const { file, db } = openData();
-const user = db.users.find(u => u.username === username);
-if (!user) {
-  console.error('Pemakaian: node scripts/reset-password.cjs username (akun harus sudah ada)');
-  process.exit(1);
-}
 
-const password = randomPassword();
-user.salt = crypto.randomBytes(16).toString('hex');
-user.hash = crypto.scryptSync(password, user.salt, 64).toString('hex');
-user.active = true;
-db.sessions = (db.sessions || []).filter(s => s.userId !== user.id);
-saveData(file, db);
-console.log(JSON.stringify({ username, password }));
+run(async db => {
+  const user = await db.users.byUsername(username);
+  if (!user) throw new Error('Pemakaian: node scripts/reset-password.cjs username (akun harus sudah ada)');
+  const password = randomPassword();
+  const salt = crypto.randomBytes(16).toString('hex');
+  await db.users.update(user.id, { salt, hash: crypto.scryptSync(password, salt, 64).toString('hex'), active: true });
+  await db.sessions.removeForUser(user.id);
+  await db.audit.add(null, 'user.reset-password', username, 'Direset dari terminal');
+  console.log(JSON.stringify({ username, password }));
+});

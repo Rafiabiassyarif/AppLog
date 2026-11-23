@@ -5,21 +5,52 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const crypto = require('crypto');
+const mysql = require('mysql2/promise');
 const { createApp } = require('../server/app.cjs');
+const { createDb } = require('../server/db.cjs');
+
+// Tes API butuh MySQL. Contoh: TEST_MYSQL_URL=mysql://root@127.0.0.1:3306
+// Setiap run memakai database sementara applog_test_xxx yang dihapus setelah selesai.
+const MYSQL_URL = process.env.TEST_MYSQL_URL;
+const skip = MYSQL_URL ? false : 'atur TEST_MYSQL_URL (contoh mysql://root@127.0.0.1:3306) untuk tes API';
+const it = (name, fn) => test(name, { skip }, fn);
 
 let server;
 let base;
 let tmpDir;
+let db;
+let dbName;
+let dbConfig;
+
+async function withServerConnection(sql) {
+  const connection = await mysql.createConnection(dbConfig);
+  try {
+    await connection.query(sql);
+  } finally {
+    await connection.end();
+  }
+}
 
 before(async () => {
+  if (skip) return;
+  const url = new URL(MYSQL_URL);
+  dbName = `applog_test_${crypto.randomBytes(4).toString('hex')}`;
+  dbConfig = { host: url.hostname, port: Number(url.port) || 3306, user: decodeURIComponent(url.username), password: decodeURIComponent(url.password) };
+  await withServerConnection(`CREATE DATABASE ${dbName} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'applog-test-'));
-  ({ server } = createApp({ dataFile: path.join(tmpDir, 'registry.json'), distDir: path.join(tmpDir, 'dist') }));
+  db = createDb({ ...dbConfig, database: dbName });
+  await db.init();
+  ({ server } = createApp({ db, distDir: path.join(tmpDir, 'dist') }));
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   base = `http://127.0.0.1:${server.address().port}`;
 });
 
-after(() => {
+after(async () => {
+  if (skip) return;
   server.close();
+  await db.close();
+  await withServerConnection(`DROP DATABASE IF EXISTS ${dbName}`);
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
@@ -47,7 +78,7 @@ const member = client();
 let memberId;
 let appId;
 
-test('setup awal membuat admin pertama dan hanya bisa sekali', async () => {
+it('setup awal membuat admin pertama dan hanya bisa sekali', async () => {
   const session = await admin('/api/session');
   assert.equal(session.data.setupRequired, true);
   const setup = await admin('/api/setup', { method: 'POST', body: { name: 'Admin Uji', username: 'admin', password: 'rahasia-admin-1' } });
@@ -57,13 +88,13 @@ test('setup awal membuat admin pertama dan hanya bisa sekali', async () => {
   assert.equal(again.status, 403);
 });
 
-test('header keamanan selalu dikirim', async () => {
+it('header keamanan selalu dikirim', async () => {
   const res = await admin('/api/session');
   assert.match(res.headers.get('content-security-policy'), /frame-ancestors 'none'/);
   assert.equal(res.headers.get('x-frame-options'), 'DENY');
 });
 
-test('admin membuat akun user; username duplikat ditolak', async () => {
+it('admin membuat akun user; username duplikat ditolak', async () => {
   const created = await admin('/api/users', { method: 'POST', body: { name: 'Budi', username: 'budi', password: 'password-budi-1' } });
   assert.equal(created.status, 201);
   memberId = created.data.id;
@@ -71,7 +102,7 @@ test('admin membuat akun user; username duplikat ditolak', async () => {
   assert.equal(dup.status, 409);
 });
 
-test('login salah ditolak, login benar berhasil', async () => {
+it('login salah ditolak, login benar berhasil', async () => {
   const wrong = await member('/api/login', { method: 'POST', body: { username: 'budi', password: 'salah-salah' } });
   assert.equal(wrong.status, 401);
   const ok = await member('/api/login', { method: 'POST', body: { username: 'budi', password: 'password-budi-1' } });
@@ -79,19 +110,19 @@ test('login salah ditolak, login benar berhasil', async () => {
   assert.match(ok.headers.get('set-cookie'), /HttpOnly/);
 });
 
-test('request non-JSON dan lintas situs ditolak', async () => {
+it('request non-JSON dan lintas situs ditolak', async () => {
   const res = await fetch(base + '/api/login', { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: 'x' });
   assert.equal(res.status, 415);
   const cross = await member('/api/apps', { method: 'POST', body: { name: 'X', owner: 'Budi' }, headers: { 'Sec-Fetch-Site': 'cross-site' } });
   assert.equal(cross.status, 403);
 });
 
-test('JSON rusak dijawab 400', async () => {
+it('JSON rusak dijawab 400', async () => {
   const res = await member('/api/apps', { method: 'POST', rawBody: '{' });
   assert.equal(res.status, 400);
 });
 
-test('validasi aplikasi: link, tahun, nama ganda', async () => {
+it('validasi aplikasi: link, tahun, nama ganda', async () => {
   const badLink = await member('/api/apps', { method: 'POST', body: { name: 'App A', owner: 'Budi', link: 'javascript:alert(1)' } });
   assert.equal(badLink.status, 400);
   const badYear = await member('/api/apps', { method: 'POST', body: { name: 'App A', owner: 'Budi', year: '1990' } });
@@ -104,7 +135,7 @@ test('validasi aplikasi: link, tahun, nama ganda', async () => {
   assert.equal(dup.status, 409);
 });
 
-test('hapus memindahkan ke Sampah dan bisa dipulihkan', async () => {
+it('hapus memindahkan ke Sampah dan bisa dipulihkan', async () => {
   assert.equal((await member(`/api/apps/${appId}`, { method: 'DELETE' })).status, 200);
   assert.equal((await member('/api/apps')).data.length, 0);
   assert.equal((await member('/api/trash')).data.length, 1);
@@ -112,7 +143,7 @@ test('hapus memindahkan ke Sampah dan bisa dipulihkan', async () => {
   assert.equal((await member('/api/apps')).data.length, 1);
 });
 
-test('tanggal pengerjaan dan logo', async () => {
+it('tanggal pengerjaan dan logo', async () => {
   const body = { name: 'App Tanggal', owner: 'Budi', type: 'internal', status: 'Selesai' };
   const post = extra => member('/api/apps', { method: 'POST', body: { ...body, ...extra } });
   assert.equal((await post({ startDate: '2026-02-30' })).status, 400, 'tanggal tidak ada');
@@ -133,13 +164,13 @@ test('tanggal pengerjaan dan logo', async () => {
   assert.equal((await member(`/api/apps/${ok.data.id}`, { method: 'DELETE' })).status, 200);
 });
 
-test('user biasa tidak bisa akses fitur admin', async () => {
+it('user biasa tidak bisa akses fitur admin', async () => {
   assert.equal((await member('/api/users')).status, 403);
   assert.equal((await member('/api/audit')).status, 403);
   assert.equal((await member(`/api/trash/${appId}`, { method: 'DELETE' })).status, 403);
 });
 
-test('export xlsx dan pdf butuh login dan menghasilkan file', async () => {
+it('export xlsx dan pdf butuh login dan menghasilkan file', async () => {
   assert.equal((await client()('/api/export.xlsx')).status, 401);
   const xlsx = await admin('/api/export.xlsx');
   assert.equal(xlsx.status, 200);
@@ -149,7 +180,7 @@ test('export xlsx dan pdf butuh login dan menghasilkan file', async () => {
   assert.equal(pdf.data.subarray(0, 4).toString(), '%PDF');
 });
 
-test('nonaktifkan akun mengakhiri sesinya', async () => {
+it('nonaktifkan akun mengakhiri sesinya', async () => {
   const res = await admin(`/api/users/${memberId}`, { method: 'PATCH', body: { active: false } });
   assert.equal(res.status, 200);
   assert.equal((await member('/api/apps')).status, 401);
@@ -157,13 +188,13 @@ test('nonaktifkan akun mengakhiri sesinya', async () => {
   assert.equal(login.status, 403, 'akun nonaktif tidak bisa login');
 });
 
-test('admin tidak bisa menurunkan perannya sendiri', async () => {
+it('admin tidak bisa menurunkan perannya sendiri', async () => {
   const me = (await admin('/api/session')).data.user;
   const res = await admin(`/api/users/${me.id}`, { method: 'PATCH', body: { role: 'member' } });
   assert.equal(res.status, 400);
 });
 
-test('reset password memberi password baru yang bisa dipakai', async () => {
+it('reset password memberi password baru yang bisa dipakai', async () => {
   await admin(`/api/users/${memberId}`, { method: 'PATCH', body: { active: true } });
   const reset = await admin(`/api/users/${memberId}/reset-password`, { method: 'POST' });
   assert.equal(reset.status, 200);
@@ -171,7 +202,7 @@ test('reset password memberi password baru yang bisa dipakai', async () => {
   assert.equal(login.status, 200);
 });
 
-test('riwayat perubahan mencatat aktivitas', async () => {
+it('riwayat perubahan mencatat aktivitas', async () => {
   const audit = await admin('/api/audit');
   const actions = audit.data.map(item => item.action);
   for (const action of ['setup', 'user.create', 'app.create', 'app.delete', 'app.restore', 'user.reset-password']) {
@@ -179,8 +210,9 @@ test('riwayat perubahan mencatat aktivitas', async () => {
   }
 });
 
-test('sesi tetap berlaku setelah server restart', async () => {
-  const second = createApp({ dataFile: path.join(tmpDir, 'registry.json'), distDir: path.join(tmpDir, 'dist') });
+it('sesi tetap berlaku setelah server restart', async () => {
+  const secondDb = createDb({ ...dbConfig, database: dbName });
+  const second = createApp({ db: secondDb, distDir: path.join(tmpDir, 'dist') });
   await new Promise(resolve => second.server.listen(0, '127.0.0.1', resolve));
   try {
     const res = await fetch(`http://127.0.0.1:${second.server.address().port}/api/session`, { headers: { Cookie: admin.cookie() } });
@@ -188,5 +220,6 @@ test('sesi tetap berlaku setelah server restart', async () => {
     assert.equal(data.user?.username, 'admin');
   } finally {
     second.server.close();
+    await secondDb.close();
   }
 });

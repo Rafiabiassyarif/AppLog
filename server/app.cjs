@@ -5,7 +5,6 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { HttpError, badRequest, forbidden, notFound, conflict } = require('./errors.cjs');
-const { createStore } = require('./store.cjs');
 const { makeCredentials, verifyPassword, randomPassword, createSessions, createLoginLimiter } = require('./auth.cjs');
 const validate = require('./validate.cjs');
 const { queryApps } = require('./query.cjs');
@@ -37,15 +36,19 @@ const SECURITY_HEADERS = {
 
 const publicUser = user => ({ id: user.id, name: user.name, username: user.username, role: user.role, active: user.active });
 const isLoopback = ip => ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(ip);
+const isDuplicate = error => error && error.code === 'ER_DUP_ENTRY';
 
-function createApp({ dataFile = path.join(ROOT, 'data', 'registry.json'), distDir = path.join(ROOT, 'dist'), backupDir, trustProxy = false, secureCookie = false } = {}) {
-  const store = createStore(dataFile, backupDir ? { backupDir } : {});
-  const { db } = store;
-  const sessions = createSessions(store);
+/**
+ * Membuat server HTTP AppLog.
+ * `db` berasal dari createDb() (server/db.cjs) dan harus sudah di-init().
+ */
+function createApp({ db, distDir = path.join(ROOT, 'dist'), trustProxy = false, secureCookie = false }) {
+  if (!db) throw new Error('createApp membutuhkan koneksi database (db).');
+  const sessions = createSessions(db);
   const limiter = createLoginLimiter();
   const timer = setInterval(() => {
     limiter.prune();
-    if (sessions.prune()) store.persist();
+    sessions.prune().catch(error => console.error('Gagal membersihkan sesi:', error.message));
   }, 10 * 60 * 1000);
   timer.unref();
 
@@ -62,10 +65,6 @@ function createApp({ dataFile = path.join(ROOT, 'data', 'registry.json'), distDi
   function setSessionCookie(req, res, token, maxAge) {
     const secure = isSecure(req) ? '; Secure' : '';
     res.setHeader('Set-Cookie', `${COOKIE}=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${maxAge}${secure}`);
-  }
-
-  function activeAdmins(excludeId) {
-    return db.users.filter(u => u.role === 'admin' && u.active && u.id !== excludeId).length;
   }
 
   async function readBody(req) {
@@ -87,22 +86,28 @@ function createApp({ dataFile = path.join(ROOT, 'data', 'registry.json'), distDi
     }
   }
 
-  function findApp(id) {
-    const app = db.apps.find(a => a.id === id);
+  async function findApp(id) {
+    const app = await db.apps.byId(id);
     if (!app) throw notFound('Aplikasi tidak ditemukan.');
     return app;
   }
 
-  function findUser(id) {
-    const user = db.users.find(u => u.id === id);
+  async function findUser(id) {
+    const user = await db.users.byId(id);
     if (!user) throw notFound('Akun tidak ditemukan.');
     return user;
   }
 
-  function assertUniqueName(name, exceptId) {
-    const lower = name.toLowerCase();
-    if (db.apps.some(a => !a.deletedAt && a.id !== exceptId && a.name.toLowerCase() === lower)) {
-      throw conflict('Nama aplikasi sudah terdaftar.');
+  async function assertUniqueName(name, exceptId) {
+    if (await db.apps.nameTaken(name, exceptId)) throw conflict('Nama aplikasi sudah terdaftar.');
+  }
+
+  async function insertUser(account) {
+    try {
+      await db.users.insert(account);
+    } catch (error) {
+      if (isDuplicate(error)) throw conflict('Username sudah digunakan.');
+      throw error;
     }
   }
 
@@ -112,10 +117,10 @@ function createApp({ dataFile = path.join(ROOT, 'data', 'registry.json'), distDi
   // Setiap handler menerima ctx = { req, res, url, user, token, params, body() }.
 
   const routes = [
-    ['GET', '/api/session', ({ user }) => ({ user: user ? publicUser(user) : null, setupRequired: db.users.length === 0 })],
+    ['GET', '/api/session', async ({ user }) => ({ user: user ? publicUser(user) : null, setupRequired: (await db.users.count()) === 0 })],
 
     ['POST', '/api/setup', async ctx => {
-      if (db.users.length) throw forbidden('Workspace sudah disiapkan.');
+      if (await db.users.count()) throw forbidden('Workspace sudah disiapkan.');
       if (!isLoopback(ctx.req.socket.remoteAddress)) throw forbidden('Admin pertama hanya bisa dibuat dari komputer server.');
       const body = await ctx.body();
       const admin = {
@@ -126,9 +131,9 @@ function createApp({ dataFile = path.join(ROOT, 'data', 'registry.json'), distDi
         active: true,
         ...(await makeCredentials(validate.password(body.password))),
       };
-      db.users.push(admin);
-      store.audit(admin, 'setup', admin.username, 'Admin pertama dibuat');
-      const token = sessions.create(admin.id);
+      await insertUser(admin);
+      await db.audit.add(admin, 'setup', admin.username, 'Admin pertama dibuat');
+      const token = await sessions.create(admin.id);
       setSessionCookie(ctx.req, ctx.res, token, sessions.maxAgeSeconds);
       return { status: 201, data: { user: publicUser(admin) } };
     }, { public: true }],
@@ -138,7 +143,7 @@ function createApp({ dataFile = path.join(ROOT, 'data', 'registry.json'), distDi
       const name = String(body.username || '').toLowerCase().slice(0, 40);
       const ip = clientIp(ctx.req);
       if (limiter.blocked(ip, name)) throw new HttpError(429, 'Terlalu banyak percobaan gagal. Coba lagi dalam 15 menit.');
-      const user = db.users.find(u => u.username === name);
+      const user = name ? await db.users.byUsername(name) : null;
       const ok = await verifyPassword(user, body.password);
       if (!ok) {
         limiter.fail(ip, name);
@@ -146,13 +151,13 @@ function createApp({ dataFile = path.join(ROOT, 'data', 'registry.json'), distDi
       }
       if (!user.active) throw forbidden('Akun ini dinonaktifkan. Hubungi admin.');
       limiter.success(ip, name);
-      const token = sessions.create(user.id);
+      const token = await sessions.create(user.id);
       setSessionCookie(ctx.req, ctx.res, token, sessions.maxAgeSeconds);
       return { user: publicUser(user) };
     }, { public: true }],
 
-    ['POST', '/api/logout', ctx => {
-      sessions.destroy(ctx.token);
+    ['POST', '/api/logout', async ctx => {
+      await sessions.destroy(ctx.token);
       setSessionCookie(ctx.req, ctx.res, '', 0);
       return { ok: true };
     }, { public: true }],
@@ -160,168 +165,154 @@ function createApp({ dataFile = path.join(ROOT, 'data', 'registry.json'), distDi
     ['POST', '/api/password', async ({ user, token, body }) => {
       const input = await body();
       if (!(await verifyPassword(user, input.currentPassword))) throw badRequest('Password saat ini tidak sesuai.');
-      Object.assign(user, await makeCredentials(validate.password(input.password, 'Password baru')));
-      sessions.destroyForUser(user.id, token);
-      store.audit(user, 'password', user.username, 'Mengganti password sendiri');
-      store.persist();
+      await db.users.update(user.id, await makeCredentials(validate.password(input.password, 'Password baru')));
+      await sessions.destroyForUser(user.id, token);
+      await db.audit.add(user, 'password', user.username, 'Mengganti password sendiri');
       return { ok: true };
     }],
 
     // ----- Akun (admin) -----
-    ['GET', '/api/users', () => db.users.map(publicUser), { admin: true }],
+    ['GET', '/api/users', async () => (await db.users.all()).map(publicUser), { admin: true }],
 
     ['POST', '/api/users', async ({ user, body }) => {
       const input = await body();
-      const username = validate.username(input.username);
-      if (db.users.some(u => u.username === username)) throw conflict('Username sudah digunakan.');
       const account = {
         id: crypto.randomUUID(),
         name: validate.userName(input.name),
-        username,
+        username: validate.username(input.username),
         role: input.role ? validate.role(input.role) : 'member',
         active: true,
         ...(await makeCredentials(validate.password(input.password))),
       };
-      db.users.push(account);
-      store.audit(user, 'user.create', account.username, account.role === 'admin' ? 'Peran Admin' : 'Peran User');
-      store.persist();
+      await insertUser(account);
+      await db.audit.add(user, 'user.create', account.username, account.role === 'admin' ? 'Peran Admin' : 'Peran User');
       return { status: 201, data: publicUser(account) };
     }, { admin: true }],
 
     ['PATCH', '/api/users/:id', async ({ user, params, body }) => {
-      const account = findUser(params.id);
+      const account = await findUser(params.id);
       const input = await body();
       const changes = [];
+      const fields = {};
       if (input.name !== undefined) {
         const name = validate.userName(input.name);
         if (name !== account.name) {
           changes.push(`nama "${account.name}" → "${name}"`);
-          account.name = name;
+          fields.name = name;
         }
       }
       if (input.role !== undefined) {
         const role = validate.role(input.role);
         if (role !== account.role) {
           if (account.id === user.id) throw badRequest('Kamu tidak dapat mengubah peranmu sendiri.');
-          if (account.role === 'admin' && !activeAdmins(account.id)) throw badRequest('Minimal harus ada satu Admin aktif.');
+          if (account.role === 'admin' && !(await db.users.activeAdmins(account.id))) throw badRequest('Minimal harus ada satu Admin aktif.');
           changes.push(`peran → ${role === 'admin' ? 'Admin' : 'User'}`);
-          account.role = role;
+          fields.role = role;
         }
       }
       if (input.active !== undefined) {
         if (typeof input.active !== 'boolean') throw badRequest('Status akun tidak valid.');
         if (input.active !== account.active) {
           if (account.id === user.id) throw badRequest('Kamu tidak dapat menonaktifkan akunmu sendiri.');
-          if (!input.active && account.role === 'admin' && !activeAdmins(account.id)) throw badRequest('Minimal harus ada satu Admin aktif.');
-          account.active = input.active;
-          if (!account.active) sessions.destroyForUser(account.id);
-          changes.push(account.active ? 'diaktifkan' : 'dinonaktifkan');
+          if (!input.active && account.role === 'admin' && !(await db.users.activeAdmins(account.id))) throw badRequest('Minimal harus ada satu Admin aktif.');
+          fields.active = input.active;
+          changes.push(input.active ? 'diaktifkan' : 'dinonaktifkan');
         }
       }
       if (changes.length) {
-        store.audit(user, 'user.update', account.username, changes.join(', '));
-        store.persist();
+        await db.users.update(account.id, fields);
+        if (fields.active === false) await sessions.destroyForUser(account.id);
+        await db.audit.add(user, 'user.update', account.username, changes.join(', '));
       }
-      return publicUser(account);
+      return publicUser({ ...account, ...fields });
     }, { admin: true }],
 
     ['POST', '/api/users/:id/reset-password', async ({ user, params }) => {
-      const account = findUser(params.id);
+      const account = await findUser(params.id);
       if (account.id === user.id) throw badRequest('Gunakan menu Ubah password untuk akunmu sendiri.');
       const password = randomPassword();
-      Object.assign(account, await makeCredentials(password));
-      sessions.destroyForUser(account.id);
-      store.audit(user, 'user.reset-password', account.username, 'Password direset admin');
-      store.persist();
+      await db.users.update(account.id, await makeCredentials(password));
+      await sessions.destroyForUser(account.id);
+      await db.audit.add(user, 'user.reset-password', account.username, 'Password direset admin');
       return { password };
     }, { admin: true }],
 
-    ['DELETE', '/api/users/:id', ({ user, params }) => {
-      const account = findUser(params.id);
+    ['DELETE', '/api/users/:id', async ({ user, params }) => {
+      const account = await findUser(params.id);
       if (account.id === user.id) throw badRequest('Kamu tidak dapat menghapus akunmu sendiri.');
-      if (account.role === 'admin' && !activeAdmins(account.id)) throw badRequest('Minimal harus ada satu Admin aktif.');
-      db.users = db.users.filter(u => u.id !== account.id);
-      sessions.destroyForUser(account.id);
-      store.audit(user, 'user.delete', account.username, 'Akun dihapus; aplikasinya tetap tersimpan');
-      store.persist();
+      if (account.role === 'admin' && !(await db.users.activeAdmins(account.id))) throw badRequest('Minimal harus ada satu Admin aktif.');
+      await db.users.remove(account.id); // sesi ikut terhapus (ON DELETE CASCADE)
+      await db.audit.add(user, 'user.delete', account.username, 'Akun dihapus; aplikasinya tetap tersimpan');
       return { ok: true };
     }, { admin: true }],
 
     // ----- Aplikasi -----
-    ['GET', '/api/apps', () => db.apps.filter(a => !a.deletedAt)],
+    ['GET', '/api/apps', () => db.apps.active()],
 
     ['POST', '/api/apps', async ({ user, body }) => {
       const input = validate.appInput(await body());
       if (user.role !== 'admin') input.owner = user.name;
-      assertUniqueName(input.name);
+      await assertUniqueName(input.name);
       const now = new Date().toISOString();
       const app = { id: crypto.randomUUID(), ...input, createdBy: user.id, createdAt: now, updatedAt: now, deletedAt: null, deletedBy: null };
-      db.apps.push(app);
-      store.audit(user, 'app.create', app.name);
-      store.persist();
+      await db.apps.insert(app);
+      await db.audit.add(user, 'app.create', app.name);
       return { status: 201, data: app };
     }],
 
     ['PUT', '/api/apps/:id', async ({ user, params, body }) => {
-      const app = findApp(params.id);
+      const app = await findApp(params.id);
       if (app.deletedAt) throw notFound('Aplikasi tidak ditemukan.');
       if (!canManage(user, app)) throw forbidden('Kamu hanya dapat mengubah aplikasi milikmu.');
       const input = validate.appInput(await body());
       if (user.role !== 'admin') input.owner = app.owner || user.name;
-      assertUniqueName(input.name, app.id);
+      await assertUniqueName(input.name, app.id);
       const changed = Object.keys(input).filter(key => input[key] !== app[key]);
-      Object.assign(app, input, { updatedAt: new Date().toISOString() });
-      store.audit(user, 'app.update', app.name, changed.length ? `Mengubah: ${changed.join(', ')}` : 'Tanpa perubahan');
-      store.persist();
-      return app;
+      const updated = { ...app, ...input, updatedAt: new Date().toISOString() };
+      await db.apps.update(app.id, { ...input, updatedAt: updated.updatedAt });
+      await db.audit.add(user, 'app.update', updated.name, changed.length ? `Mengubah: ${changed.join(', ')}` : 'Tanpa perubahan');
+      return updated;
     }],
 
-    ['DELETE', '/api/apps/:id', ({ user, params }) => {
-      const app = findApp(params.id);
+    ['DELETE', '/api/apps/:id', async ({ user, params }) => {
+      const app = await findApp(params.id);
       if (app.deletedAt) throw notFound('Aplikasi tidak ditemukan.');
       if (!canManage(user, app)) throw forbidden('Kamu hanya dapat menghapus aplikasi milikmu.');
-      app.deletedAt = new Date().toISOString();
-      app.deletedBy = user.id;
-      store.audit(user, 'app.delete', app.name, 'Dipindahkan ke Sampah');
-      store.persist();
+      await db.apps.update(app.id, { deletedAt: new Date().toISOString(), deletedBy: user.id });
+      await db.audit.add(user, 'app.delete', app.name, 'Dipindahkan ke Sampah');
       return { ok: true };
     }],
 
-    ['GET', '/api/trash', ({ user }) => db.apps
-      .filter(a => a.deletedAt && canManage(user, a))
-      .sort((a, b) => b.deletedAt.localeCompare(a.deletedAt))],
+    ['GET', '/api/trash', async ({ user }) => (await db.apps.trash()).filter(app => canManage(user, app))],
 
-    ['POST', '/api/apps/:id/restore', ({ user, params }) => {
-      const app = findApp(params.id);
+    ['POST', '/api/apps/:id/restore', async ({ user, params }) => {
+      const app = await findApp(params.id);
       if (!app.deletedAt) throw badRequest('Aplikasi tidak ada di Sampah.');
       if (!canManage(user, app)) throw forbidden('Kamu hanya dapat memulihkan aplikasi milikmu.');
-      assertUniqueName(app.name, app.id);
-      app.deletedAt = null;
-      app.deletedBy = null;
-      app.updatedAt = new Date().toISOString();
-      store.audit(user, 'app.restore', app.name, 'Dipulihkan dari Sampah');
-      store.persist();
-      return app;
+      await assertUniqueName(app.name, app.id);
+      const restored = { ...app, deletedAt: null, deletedBy: null, updatedAt: new Date().toISOString() };
+      await db.apps.update(app.id, { deletedAt: null, deletedBy: null, updatedAt: restored.updatedAt });
+      await db.audit.add(user, 'app.restore', app.name, 'Dipulihkan dari Sampah');
+      return restored;
     }],
 
-    ['DELETE', '/api/trash/:id', ({ user, params }) => {
-      const app = findApp(params.id);
+    ['DELETE', '/api/trash/:id', async ({ user, params }) => {
+      const app = await findApp(params.id);
       if (!app.deletedAt) throw badRequest('Pindahkan aplikasi ke Sampah terlebih dahulu.');
-      db.apps = db.apps.filter(a => a.id !== app.id);
-      store.audit(user, 'app.purge', app.name, 'Dihapus permanen');
-      store.persist();
+      await db.apps.remove(app.id);
+      await db.audit.add(user, 'app.purge', app.name, 'Dihapus permanen');
       return { ok: true };
     }, { admin: true }],
 
-    ['GET', '/api/audit', () => db.audit.slice(-300).reverse(), { admin: true }],
+    ['GET', '/api/audit', () => db.audit.recent(300), { admin: true }],
 
     ['GET', '/api/export.xlsx', async ({ res, url, user }) => {
-      await writeXlsx(res, exportRows(url, user));
+      await writeXlsx(res, await exportRows(url, user));
       return null;
     }],
 
-    ['GET', '/api/export.pdf', ({ res, url, user }) => {
-      writePdf(res, exportRows(url, user));
+    ['GET', '/api/export.pdf', async ({ res, url, user }) => {
+      writePdf(res, await exportRows(url, user));
       return null;
     }],
   ].map(([method, pattern, handler, options = {}]) => {
@@ -330,9 +321,9 @@ function createApp({ dataFile = path.join(ROOT, 'data', 'registry.json'), distDi
     return { method, regex, keys, handler, options };
   });
 
-  function exportRows(url, user) {
+  async function exportRows(url, user) {
     const params = Object.fromEntries(url.searchParams);
-    return queryApps(db.apps, { ...params, createdBy: params.mine === '1' ? user.id : '' });
+    return queryApps(await db.apps.active(), { ...params, createdBy: params.mine === '1' ? user.id : '' });
   }
 
   function sendJson(res, status, data) {
@@ -351,8 +342,7 @@ function createApp({ dataFile = path.join(ROOT, 'data', 'registry.json'), distDi
     if (!route) throw new HttpError(405, 'Metode tidak didukung.');
 
     const token = tokenOf(req);
-    const auth = sessions.find(token);
-    const user = auth?.user || null;
+    const user = await sessions.find(token);
     if (!route.options.public && !user && url.pathname !== '/api/session') throw new HttpError(401, 'Sesi berakhir. Silakan login kembali.');
     if (route.options.admin && user.role !== 'admin') throw forbidden('Hanya Admin yang dapat melakukan ini.');
 
@@ -364,9 +354,9 @@ function createApp({ dataFile = path.join(ROOT, 'data', 'registry.json'), distDi
     return sendJson(res, 200, result);
   }
 
-  function serveStatic(req, res, url) {
+  async function serveStatic(req, res, url) {
     if (['/dashboard', '/admin', '/user'].includes(url.pathname)) {
-      const user = sessions.find(tokenOf(req))?.user;
+      const user = await sessions.find(tokenOf(req));
       const destination = user ? (user.role === 'admin' ? '/admin' : '/user') : '/login';
       if (url.pathname !== destination) {
         res.writeHead(302, { Location: destination + url.search, 'Cache-Control': 'no-store' });
@@ -396,7 +386,7 @@ function createApp({ dataFile = path.join(ROOT, 'data', 'registry.json'), distDi
     const url = new URL(req.url, 'http://localhost');
     try {
       if (url.pathname.startsWith('/api/')) await handleApi(req, res, url);
-      else serveStatic(req, res, url);
+      else await serveStatic(req, res, url);
     } catch (error) {
       const known = error instanceof HttpError;
       if (!known) console.error(error);
@@ -405,7 +395,7 @@ function createApp({ dataFile = path.join(ROOT, 'data', 'registry.json'), distDi
     }
   });
   server.on('close', () => clearInterval(timer));
-  return { server, store };
+  return { server };
 }
 
 module.exports = { createApp };
