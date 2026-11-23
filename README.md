@@ -65,7 +65,7 @@ Tanpa HTTPS, password dikirim tanpa enkripsi di jaringan. Untuk akses di luar ja
 - File data ditulis secara atomik. Backup otomatis disimpan di `data/backups/` atau `BACKUP_DIR` (maksimal satu per 10 menit, 30 terakhir disimpan). Jangan masukkan folder `data/` ke repository. Simpan backup di disk lain agar data selamat bila disk utama rusak, misalnya:
 
 ```powershell
-$env:BACKUP_DIR = 'E:BackupAppLog'; npm start
+$env:BACKUP_DIR = 'E:\Backup\AppLog'; npm start
 ```
 
 - Ekspor XLSX dan PDF mengikuti pencarian, filter, dan urutan yang sedang dipakai.
