@@ -9,6 +9,7 @@ const { makeCredentials, verifyPassword, createSessions, createLoginLimiter, cre
 const validate = require('./validate.cjs');
 const { queryApps } = require('./query.cjs');
 const { writeXlsx, writePdf } = require('./export.cjs');
+const openapi = require('./openapi.cjs');
 
 const ROOT = path.join(__dirname, '..');
 const BODY_LIMIT = 100 * 1024;
@@ -60,6 +61,12 @@ function createApp({ db, distDir = path.join(ROOT, 'dist'), trustProxy = false, 
     return req.socket.remoteAddress || 'unknown';
   };
   const isSecure = req => secureCookie || (trustProxy && req.headers['x-forwarded-proto'] === 'https');
+  // Alamat publik server untuk dokumentasi API (mengikuti proxy bila TRUST_PROXY aktif).
+  const baseUrlOf = req => {
+    const forwardedHost = trustProxy && String(req.headers['x-forwarded-host'] || '').split(',')[0].trim();
+    const host = forwardedHost || req.headers.host || 'localhost';
+    return `${isSecure(req) ? 'https' : 'http'}://${host}`;
+  };
   const tokenOf = req => (req.headers.cookie || '').match(new RegExp(`(?:^|;\\s*)${COOKIE}=([a-f0-9]{64})`))?.[1] || null;
 
   function setSessionCookie(req, res, token, maxAge) {
@@ -333,7 +340,18 @@ function createApp({ db, distDir = path.join(ROOT, 'dist'), trustProxy = false, 
     }, { admin: true }],
 
     // ----- Aplikasi -----
+    ['GET', '/api/openapi.json', ({ req, res }) => {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      return openapi.buildSpec(baseUrlOf(req));
+    }, { public: true, token: true }],
+
     ['GET', '/api/apps', () => db.apps.active(), { token: true }],
+
+    ['GET', '/api/apps/:id', async ({ params }) => {
+      const app = await findApp(params.id);
+      if (app.deletedAt) throw notFound('Aplikasi tidak ditemukan.');
+      return app;
+    }, { token: true }],
 
     ['POST', '/api/apps', async ({ user, body }) => {
       const input = validate.appInput(await body());
@@ -357,7 +375,14 @@ function createApp({ db, distDir = path.join(ROOT, 'dist'), trustProxy = false, 
       const data = await body();
       let input;
       if (manage) {
-        input = validate.appInput(data);
+        // Field yang tidak dikirim memakai nilai lama, jadi AI agent boleh mengirim sebagian.
+        const lead = (app.members.find(m => m.lead) || {}).userId;
+        input = validate.appInput({
+          ...app,
+          members: app.members.map(m => m.userId),
+          leadId: 'members' in data ? undefined : lead,
+          ...data,
+        });
         keepTeam(user, input, app);
         if (user.role !== 'admin') input.owner = app.owner || user.name;
         await assertUniqueName(input.name, app.id);
@@ -538,6 +563,17 @@ function createApp({ db, distDir = path.join(ROOT, 'dist'), trustProxy = false, 
         res.writeHead(302, { Location: destination + url.search, 'Cache-Control': 'no-store' });
         return res.end();
       }
+    }
+    // Dokumentasi API publik: /docs (HTML), /docs.css, /llms.txt (Markdown untuk LLM).
+    const docs = {
+      '/docs': () => ['text/html; charset=utf-8', openapi.renderDocs(openapi.buildSpec(baseUrlOf(req)))],
+      '/docs.css': () => ['text/css; charset=utf-8', openapi.DOCS_CSS],
+      '/llms.txt': () => ['text/plain; charset=utf-8', openapi.renderLlms(openapi.buildSpec(baseUrlOf(req)))],
+    }[url.pathname];
+    if (docs) {
+      const [type, content] = docs();
+      res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'no-cache' });
+      return res.end(content);
     }
     let file = null;
     let cache = 'no-cache';

@@ -184,7 +184,10 @@ it('tanggal pengerjaan dan logo', async () => {
   assert.equal(ok.data.endDate, '2026-03-10');
   assert.equal(ok.data.logo, logo);
   assert.equal(ok.data.year, '2026', 'tahun mengikuti tanggal mulai');
-  const cleared = await member(`/api/apps/${ok.data.id}`, { method: 'PUT', body: { ...body, startDate: '2026-03-01', logo: '' } });
+  const kept = await member(`/api/apps/${ok.data.id}`, { method: 'PUT', body: { status: 'Maintenance' } });
+  assert.equal(kept.data.endDate, '2026-03-10', 'field yang tidak dikirim tetap');
+  assert.equal(kept.data.logo, logo);
+  const cleared = await member(`/api/apps/${ok.data.id}`, { method: 'PUT', body: { ...body, startDate: '2026-03-01', endDate: '', logo: '' } });
   assert.equal(cleared.data.logo, '');
   assert.equal(cleared.data.endDate, '');
   assert.equal((await member(`/api/apps/${ok.data.id}`, { method: 'DELETE' })).status, 200);
@@ -436,6 +439,16 @@ it('token API untuk AI agent (MCP)', async () => {
   const agentProject = await bearer('/api/apps', { method: 'POST', body: { name: 'Proyek Agent', owner: 'x', type: 'project', status: 'Ide', client: 'Dosen', specs: [{ text: 'Login' }] } });
   assert.equal(agentProject.status, 201);
   assert.equal(agentProject.data.specs.length, 0, 'spesifikasi hanya diatur Admin');
+  const fetched = await bearer(`/api/apps/${added.data.id}`);
+  assert.equal(fetched.status, 200);
+  assert.equal(fetched.data.name, 'Dari Agent');
+  assert.equal((await bearer('/api/apps/tidak-ada')).status, 404);
+  const partial = await bearer(`/api/apps/${added.data.id}`, { method: 'PUT', body: { status: 'Dikerjakan', tech: 'Node.js' } });
+  assert.equal(partial.status, 200, 'pembuat boleh mengirim sebagian field');
+  assert.equal(partial.data.status, 'Dikerjakan');
+  assert.equal(partial.data.name, 'Dari Agent');
+  assert.equal(partial.data.type, 'internal');
+  assert.equal((await bearer('/api/openapi.json')).status, 200, 'docs tetap terbuka walau memakai token');
   assert.equal((await bearer(`/api/apps/${added.data.id}`, { method: 'DELETE' })).status, 403, 'token tidak boleh menghapus');
   assert.equal((await bearer('/api/tokens')).status, 403, 'token tidak boleh mengelola token');
   assert.equal((await bearer('/api/apps', { token: 'applog_' + '0'.repeat(64) })).status, 401);
@@ -443,6 +456,27 @@ it('token API untuk AI agent (MCP)', async () => {
   assert.equal((await budi(`/api/tokens/${made.data.id}`, { method: 'DELETE' })).status, 200);
   assert.equal((await bearer('/api/apps')).status, 401, 'token dicabut');
   assert.equal((await budi(`/api/apps/${added.data.id}`, { method: 'DELETE' })).status, 200);
+});
+
+it('docs API publik untuk AI agent', async () => {
+  const spec = await fetch(base + '/api/openapi.json');
+  assert.equal(spec.status, 200);
+  const data = await spec.json();
+  assert.equal(data.openapi, '3.1.0');
+  assert.equal(data.servers[0].url, base);
+  for (const route of ['/api/session', '/api/profiles', '/api/apps', '/api/apps/{id}', '/api/apps/{id}/specs/{specId}']) assert.ok(data.paths[route], route);
+  assert.ok(data.components.securitySchemes.bearerAuth);
+
+  const page = await fetch(base + '/docs');
+  assert.equal(page.status, 200);
+  assert.match(page.headers.get('content-type'), /text\/html/);
+  const html = await page.text();
+  assert.match(html, /\/api\/openapi\.json/);
+  assert.equal(/<script|style=/.test(html), false, 'tanpa script/style inline (CSP)');
+  assert.equal((await fetch(base + '/docs.css')).status, 200);
+  const llms = await fetch(base + '/llms.txt');
+  assert.equal(llms.status, 200);
+  assert.match(await llms.text(), /PUT \/api\/apps\/\{id\}/);
 });
 
 it('sesi tetap berlaku setelah server restart', async () => {

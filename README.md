@@ -125,6 +125,20 @@ Alat yang tersedia:
 | `update_app` | Ubah sebagian field. Anggota tim proyek Admin hanya bagian kerja |
 | `check_spec` | Centang atau batalkan poin spesifikasi proyek |
 
+### Docs API (tanpa MCP)
+
+Agent yang tidak memakai MCP, atau berjalan di komputer lain, bisa langsung memanggil HTTP API server yang sudah di-hosting. Dokumentasinya publik (tanpa login) dan alamatnya mengikuti server:
+
+| Alamat | Isi |
+| --- | --- |
+| `/docs` | Dokumentasi untuk dibaca manusia: endpoint, field, hak akses, contoh curl |
+| `/api/openapi.json` | Spesifikasi OpenAPI 3.1 untuk AI agent dan tool (Swagger, Postman, GPT Actions) |
+| `/llms.txt` | Ringkasan Markdown untuk LLM |
+
+Cukup berikan `https://domain-kamu/api/openapi.json` dan token ke agent. Kirim token sebagai header `Authorization: Bearer applog_...`. Untuk POST, PUT, dan PATCH, wajib memakai `Content-Type: application/json`. `PUT /api/apps/{id}` menerima sebagian field saja.
+
+Di belakang reverse proxy (Nginx, Caddy, Cloudflare), jalankan dengan `TRUST_PROXY=1` agar Base URL di docs memakai domain dan `https` yang benar.
+
 Token hanya bisa membaca dan menambah atau mengubah aplikasi. Token tidak bisa menghapus, membuka Sampah, mengelola akun, atau membuat token lain. Server menyimpan hash token saja. Jangan bagikan token dan jangan masukkan ke repository; bila bocor, cabut di **Profil saya**.
 
 ## Ringkasan

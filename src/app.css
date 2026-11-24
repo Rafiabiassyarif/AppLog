@@ -1016,6 +1016,8 @@ tr:hover .app-icon,.app-card:hover .app-icon{transform:scale(1.08) rotate(-4deg)
 .token-box{margin-top:var(--space-5);border:1px solid #dfe4ec;border-radius:14px;padding:16px;display:grid;gap:14px;background:linear-gradient(180deg,#f5f8fd 0%,#fff 60%)}
 .token-head{display:flex;align-items:flex-start;gap:12px}
 .token-head>div{flex:1;min-width:0}
+.token-docs{flex-shrink:0;display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--ink);font-size:12.5px;font-weight:600;text-decoration:none;white-space:nowrap}
+.token-docs:hover{border-color:#9db4dc;color:#133c7e}
 .token-head h4{margin:0;display:flex;align-items:center;gap:8px;font-family:var(--font-heading);font-size:15px;color:var(--ink)}
 .token-head p{margin:3px 0 0;font-size:13px;line-height:1.5;color:var(--muted)}
 .token-badge{width:38px;height:38px;border-radius:11px;display:grid;place-items:center;flex-shrink:0;color:#fff;background:linear-gradient(135deg,#1d5bbf,#133c7e);box-shadow:0 6px 16px #133c7e33}

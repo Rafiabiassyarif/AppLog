@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Bot, Camera, Check, Copy, ImagePlus, KeyRound, Plus, Trash2 } from 'lucide-react';
+import { Bot, BookOpen, Camera, Check, Copy, ImagePlus, KeyRound, Plus, Trash2 } from 'lucide-react';
 import { api } from '../lib/api.js';
 import { photoFromFile } from '../lib/logo.js';
 import { Avatar, Button, Modal } from '../components.jsx';
@@ -152,6 +152,7 @@ function ApiTokens({ notify }) {
           <h4>Token AI agent <span className="token-tag">MCP</span></h4>
           <p>Biarkan AI agent membaca dan mengisi data aplikasimu, dengan hak akses yang sama seperti akunmu.</p>
         </div>
+        <a className="token-docs" href="/docs" target="_blank" rel="noopener noreferrer"><BookOpen size={14} />Docs API</a>
       </header>
 
       {fresh && (
@@ -164,7 +165,7 @@ function ApiTokens({ notify }) {
               {copied ? <><Check size={14} />Tersalin</> : <><Copy size={14} />Salin</>}
             </button>
           </div>
-          <small>Tempel sebagai <code>APPLOG_TOKEN</code> di konfigurasi MCP agent (panduan di README).</small>
+          <small>Tempel sebagai <code>APPLOG_TOKEN</code> di konfigurasi MCP agent, atau kirim sebagai <code>Authorization: Bearer</code> (panduan di Docs API).</small>
         </div>
       )}
 
